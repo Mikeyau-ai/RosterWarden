@@ -284,6 +284,8 @@ export async function listTeams() {
   );
   return data
     .filter((t) => !t.attributes.archived_at && !t.attributes.deleted_at)
+    // A team in no service type has no plans, so a roster could never be sent to it.
+    .filter((t) => t.relationships?.service_type?.data?.id)
     .map((t) => {
       const serviceTypeId = t.relationships?.service_type?.data?.id || null;
       return {
@@ -365,9 +367,19 @@ export async function blockoutsFor(personId, from) {
       ranges.push({ ...blockoutRange(a), reason: a.reason || '' });
       continue;
     }
+    // A repeat's own starts_at/ends_at are local times wrongly marked "Z" (seen
+    // on a live account); the real UTC moments are in starts_at_utc/ends_at_utc.
     const dates = await all(`/services/v2/people/${personId}/blockouts/${b.id}/blockout_dates`);
     for (const d of dates.data) {
-      ranges.push({ ...blockoutRange(d.attributes), reason: a.reason || '' });
+      const x = d.attributes;
+      ranges.push({
+        ...blockoutRange({
+          starts_at: x.starts_at_utc || x.starts_at,
+          ends_at: x.ends_at_utc || x.ends_at,
+          time_zone: x.time_zone,
+        }),
+        reason: a.reason || '',
+      });
     }
   }
   return ranges.filter((r) => r.end >= from);
@@ -378,10 +390,11 @@ export async function blockoutsFor(personId, from) {
 /**
  * The plans of a service type that fall between two dates, keyed by date.
  *
- * A plan's `sort_date` is its first service time in UTC, so a Sunday 9:30am
- * service in Sydney is Saturday evening UTC. The search window is padded by a
- * day each side so such a plan is not cut off, and each plan is keyed by its
- * date on this device's clock - the church's own day.
+ * Despite the "Z", a plan's `sort_date` is the church's own local time: an
+ * 8am Melbourne service comes back as "...T08:00:00Z" (checked on a live
+ * account). So the date written in it *is* the service's day, and converting
+ * it would push an evening service onto the next day. The search window is
+ * padded by a day each side in case the filter reads the bounds differently.
  */
 export async function plansBetween(serviceTypeId, first, last) {
   const pad = (iso, days) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000)
@@ -396,7 +409,7 @@ export async function plansBetween(serviceTypeId, first, last) {
   for (const plan of data) {
     const sort = plan.attributes.sort_date;
     if (!sort) continue;
-    const day = dateIn(sort);
+    const day = sort.slice(0, 10);
     if (day >= first && day <= last && !byDate.has(day)) byDate.set(day, plan);
   }
   return byDate;

@@ -8,3 +8,6 @@ dist/
 # Editor / OS noise
 .DS_Store
 Thumbs.db
+
+# Wrangler (Cloudflare) local cache, wherever it gets run from
+.wrangler/

@@ -160,9 +160,13 @@ test('repeating blockouts are expanded through their blockout dates', async () =
   signIn();
   routes = (method, url) => {
     if (url.includes('/blockout_dates')) {
+      // As the live API sends them: starts_at/ends_at are local times marked Z,
+      // and the real UTC moments are in the *_utc fields.
       return { data: [
-        { attributes: { starts_at: '2026-10-17T13:00:00Z', ends_at: '2026-10-18T13:00:00Z', time_zone: 'Australia/Sydney' } },
-        { attributes: { starts_at: '2026-10-24T13:00:00Z', ends_at: '2026-10-25T13:00:00Z', time_zone: 'Australia/Sydney' } },
+        { attributes: { starts_at: '2026-10-18T00:00:00Z', ends_at: '2026-10-19T00:00:00Z',
+          starts_at_utc: '2026-10-17T13:00:00Z', ends_at_utc: '2026-10-18T13:00:00Z', time_zone: 'Australia/Sydney' } },
+        { attributes: { starts_at: '2026-10-25T00:00:00Z', ends_at: '2026-10-26T00:00:00Z',
+          starts_at_utc: '2026-10-24T13:00:00Z', ends_at_utc: '2026-10-25T13:00:00Z', time_zone: 'Australia/Sydney' } },
       ], links: {} };
     }
     return { data: [
@@ -183,7 +187,8 @@ test('sendRoster adds what is missing, skips what is there, and reports the rest
   signIn();
   routes = (method, url, body) => {
     if (url.includes('/plans?')) {
-      return { data: [{ id: 'p1', attributes: { sort_date: '2026-10-11T09:00:00Z' } }], links: {} };
+      // An evening service: local 6:30pm, marked Z. It must stay on the 11th.
+      return { data: [{ id: 'p1', attributes: { sort_date: '2026-10-11T18:30:00Z' } }], links: {} };
     }
     if (method === 'GET' && url.includes('/team_members')) {
       // Amy is already on the plan as Barista.
