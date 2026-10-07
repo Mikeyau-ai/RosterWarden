@@ -1,4 +1,4 @@
-"""Local development server for Rosterm8.
+"""Local development server for RosterWarden.
 
 `python -m http.server` sends no cache headers, so browsers apply heuristic
 caching and keep serving stale JavaScript after an edit - which looks exactly
@@ -38,7 +38,7 @@ def main() -> int:
     """Serve the project root until interrupted."""
     root = Path(__file__).resolve().parent
     handler = partial(NoCacheHandler, directory=str(root))
-    print(f"Rosterm8 dev server: http://localhost:{PORT}  (no-cache)")
+    print(f"RosterWarden dev server: http://localhost:{PORT}  (no-cache)")
     # Threading, not the plain HTTPServer: browsers hold keep-alive
     # connections open, and a single-threaded server blocks on the first
     # one, leaving every later request hanging.

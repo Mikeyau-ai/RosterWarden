@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "rosterm8",
+      "name": "rosterwarden",
       "runtimeExecutable": "python",
       "runtimeArgs": ["dev-server.py", "8123"],
       "port": 8123

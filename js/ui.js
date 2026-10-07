@@ -5,7 +5,7 @@
  * a handful of functions over plain DOM beats pulling in a dependency that has
  * to be cached, updated and understood.
  */
-import { weekdayOf, toDays, fromDays, formatDate } from './scheduler.js';
+import { weekdayOf, toDays, fromDays, formatDate, todayISO } from './scheduler.js';
 
 /** Weekday labels, Monday-first, matching the scheduler's 0-6 indices. */
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -65,15 +65,20 @@ export function dialog(render) {
   const modal = document.getElementById('modal');
   return new Promise((resolve) => {
     let settled = false;
+    // Covers Esc and backdrop dismissal, which bypass our own buttons. The
+    // browser fires `close` a moment *after* modal.close(), so the previous
+    // dialog's event can land once this one is already showing; a dialog that
+    // is still open was not the one closed, so that stale event is ignored.
+    const onClose = () => { if (!modal.open) close(null); };
     const close = (result = null) => {
       if (settled) return;
       settled = true;
+      modal.removeEventListener('close', onClose);
       modal.close();
       modal.replaceChildren();
       resolve(result);
     };
-    // Covers Esc and backdrop dismissal, which bypass our own buttons.
-    modal.addEventListener('close', () => close(null), { once: true });
+    modal.addEventListener('close', onClose);
 
     const body = el('div', { className: 'modal-body' }, render(close));
     fill(modal, body);
@@ -131,7 +136,7 @@ export function confirmDialog(title, message, confirmLabel = 'Delete') {
  */
 export function promptDateRange(title, { openDays = [0, 1, 2, 3, 4, 5, 6] } = {}) {
   return dialog((close) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     let startISO = null;
     let endISO = null;
 
@@ -234,7 +239,7 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
  */
 export function monthGrid({ start, openDays = [0, 1, 2, 3, 4, 5, 6], classOf, onTap }) {
   const wrap = el('div', { className: 'cal' });
-  let [year, month] = (start || new Date().toISOString().slice(0, 10)).split('-').map(Number);
+  let [year, month] = (start || todayISO()).split('-').map(Number);
 
   /** Step the displayed month by `delta` months, wrapping the year. */
   const shiftMonth = (delta) => {
@@ -246,7 +251,7 @@ export function monthGrid({ start, openDays = [0, 1, 2, 3, 4, 5, 6], classOf, on
 
   /** Redraw the header and grid for the current month. */
   function draw() {
-    const todayISO = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const firstISO = `${year}-${String(month).padStart(2, '0')}-01`;
     const leading = weekdayOf(firstISO);
@@ -270,7 +275,7 @@ export function monthGrid({ start, openDays = [0, 1, 2, 3, 4, 5, 6], classOf, on
       const extra = classOf(iso);
       const cell = el('button', {
         type: 'button',
-        className: `cal-day${iso === todayISO ? ' is-today' : ''}`
+        className: `cal-day${iso === today ? ' is-today' : ''}`
           + `${closed ? ' is-closed' : ''}${extra ? ` ${extra}` : ''}`,
         textContent: String(d),
         'aria-label': closed ? `${iso} (normally closed)` : iso,
@@ -309,7 +314,7 @@ export function calendarPicker(selected, onChange, { openDays = [0, 1, 2, 3, 4, 
 
   // The month on show. Starts on whatever the user already picked, so
   // re-opening a part-built roster lands where they left off.
-  const first = [...selected].sort()[0] || new Date().toISOString().slice(0, 10);
+  const first = [...selected].sort()[0] || todayISO();
   let [year, month] = first.split('-').map(Number);   // month is 1-12 here
 
   /** Toggle one date and tell the caller. */
@@ -503,7 +508,7 @@ export function calendarPicker(selected, onChange, { openDays = [0, 1, 2, 3, 4, 
 
   /** Redraw the whole calendar for the current month. */
   function draw() {
-    const todayISO = new Date().toISOString().slice(0, 10);
+    const today = todayISO();
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const firstISO = `${year}-${String(month).padStart(2, '0')}-01`;
     const leading = weekdayOf(firstISO);          // blank cells before the 1st
@@ -534,7 +539,7 @@ export function calendarPicker(selected, onChange, { openDays = [0, 1, 2, 3, 4, 
       const closed = !isOpenDay(iso);
       const cell = el('button', {
         type: 'button',
-        className: `cal-day${iso === todayISO ? ' is-today' : ''}${closed ? ' is-closed' : ''}`,
+        className: `cal-day${iso === today ? ' is-today' : ''}${closed ? ' is-closed' : ''}`,
         textContent: String(d),
         'aria-pressed': selected.has(iso) ? 'true' : 'false',
         'aria-label': closed ? `${iso} (normally closed)` : iso,

@@ -30,7 +30,7 @@ export const PROVIDERS = {
   },
   anthropic: {
     label: 'Anthropic Claude',
-    defaultModel: 'claude-sonnet-5',
+    defaultModel: 'claude-haiku-4-5',
     keyUrl: 'https://console.anthropic.com/settings/keys',
   },
   openai: {

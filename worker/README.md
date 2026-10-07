@@ -1,6 +1,6 @@
-# Rosterm8 sync worker
+# RosterWarden sync worker
 
-A Cloudflare Worker that stores each device's **encrypted** Rosterm8 database.
+A Cloudflare Worker that stores each device's **encrypted** RosterWarden database.
 
 It is a dumb blob store. It takes an opaque lump of bytes under an opaque id
 and hands it back on request. It has no idea what a roster is, and **it cannot
@@ -9,6 +9,28 @@ key never leaves it.
 
 That is the point. Hosting other people's staff names and availability would
 make you responsible for them. Hosting ciphertext you cannot decrypt does not.
+
+It also does one small job for Planning Center sign-in: `POST /pco/token` and
+`POST /pco/refresh` add the app's client secret to a token request and pass
+Planning Center's answer straight back. Nothing is stored, and roster data never
+comes through here (the app calls Planning Center's API directly).
+
+## Planning Center (optional)
+
+1. Register an app at <https://api.planningcenteronline.com/oauth/applications>
+   (callback URLs: the site's address, and `http://localhost:8123/` for testing).
+2. Put its client id in `wrangler.toml` under `[vars]` as `PCO_CLIENT_ID`, and in
+   the app's `js/config.js`.
+3. Store the secret on Cloudflare, never in a file:
+
+   ```bash
+   npx wrangler secret put PCO_CLIENT_SECRET
+   ```
+
+4. `npx wrangler deploy`.
+
+Until both are set, the endpoints answer `501` and the app's Planning Center
+card says it isn't set up.
 
 ## What it costs
 
@@ -35,12 +57,12 @@ You need a free Cloudflare account. No domain, no credit card.
 npx wrangler login
 
 # 3. Create the database. This prints a database_id — copy it.
-npx wrangler d1 create rosterm8
+npx wrangler d1 create rosterwarden
 
 # 4. Paste that id into wrangler.toml, replacing PASTE_YOUR_DATABASE_ID_HERE
 
 # 5. Create the table.
-npx wrangler d1 execute rosterm8 --remote --file=./schema.sql
+npx wrangler d1 execute rosterwarden --remote --file=./schema.sql
 
 # 6. Deploy. This prints your worker URL.
 npx wrangler deploy
@@ -49,7 +71,7 @@ npx wrangler deploy
 Then put the URL it printed into `js/config.js` in the app:
 
 ```js
-export const SYNC_URL = 'https://rosterm8-sync.your-name.workers.dev';
+export const SYNC_URL = 'https://rosterwarden-sync.your-name.workers.dev';
 ```
 
 Commit that, and the **Sync** section appears in the app's Settings. Leave
@@ -69,8 +91,8 @@ One secret — the sync code the user sees — produces two unrelated things:
 
 ```
 secret (random, shown as the sync code)
-  ├─ SHA-256("rosterm8-id:"  + secret) ──▶ storage id   → sent to this worker
-  └─ SHA-256("rosterm8-key:" + secret) ──▶ AES-GCM key  → never sent anywhere
+  ├─ SHA-256("rosterwarden-id:"  + secret) ──▶ storage id   → sent to this worker
+  └─ SHA-256("rosterwarden-key:" + secret) ──▶ AES-GCM key  → never sent anywhere
 ```
 
 Neither can be worked back to the other, so the id this server receives tells

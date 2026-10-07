@@ -1,5 +1,5 @@
 /**
- * Service worker: makes Rosterm8 open with no connection.
+ * Service worker: makes RosterWarden open with no connection.
  *
  * Strategy is stale-while-revalidate for the app shell: answer instantly from
  * cache so a roster can be built in a cafe basement with no signal, but always
@@ -13,7 +13,7 @@
  * cross-origin and must always go to the network, never to a cache.
  */
 
-const CACHE = 'rosterm8-v1';
+const CACHE = 'rosterwarden-v1';
 
 /** Pathnames (relative to scope) that make up the precached app shell. */
 const SHELL_PATHS = new Set();
@@ -34,6 +34,9 @@ const SHELL = [
   './js/sync.js',
   './js/config.js',
   './js/views/roster.js',
+  './js/views/roster-parts.js',
+  './js/views/planning-center.js',
+  './js/sources/planning-center.js',
   './js/views/people.js',
   './js/views/shifts.js',
   './js/views/saved.js',

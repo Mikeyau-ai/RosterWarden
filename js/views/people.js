@@ -7,8 +7,10 @@
  * a list-then-detail push is the natural pattern here.
  */
 import { store } from '../store.js';
-import { formatDate } from '../scheduler.js';
+import { formatDate, todayISO } from '../scheduler.js';
 import { parsePeopleList } from '../people-import.js';
+import { isConfigured as pcoConfigured } from '../sources/planning-center.js';
+import { show } from '../app.js';
 import {
   el, fill, toast, promptText, confirmDialog, promptDateRange, weekdayPicker, monthGrid,
   dialog, DAY_LABELS,
@@ -79,10 +81,21 @@ function renderList(container) {
     el('div', { className: 'row-tight' }, [addManyBtn, addBtn]),
   ]);
 
+  // Where people get added is where Planning Center is worth mentioning: a
+  // team brought in from there saves typing every name.
+  const fromPco = pcoConfigured() ? el('button', {
+    className: 'btn btn-sm btn-block',
+    textContent: store.currentOrg()?.pco?.teamId
+      ? 'Update from Planning Center →'
+      : 'Bring people in from Planning Center →',
+    onclick: () => show('settings', { section: 'planning-center' }),
+  }) : null;
+
   const people = store.people();
   if (people.length === 0) {
     return [
       header,
+      fromPco,
       el('div', { className: 'card' }, [
         el('div', { textContent: 'No people yet' }),
         el('div', {
@@ -116,7 +129,7 @@ function renderList(container) {
     return item;
   }));
 
-  return [header, setDaysBtn, list];
+  return [header, fromPco, setDaysBtn, list];
 }
 
 /**
@@ -327,6 +340,10 @@ function renderNameCard(person) {
       className: 'faint',
       textContent: 'Inactive people are kept on the list but are never rostered.',
     }),
+    person.pcoId ? el('div', {
+      className: 'faint',
+      textContent: 'Linked to Planning Center: their blockouts come in as away dates when you update.',
+    }) : null,
   ]);
 
   return { node, commit };
@@ -365,7 +382,7 @@ function renderAvailabilityCard(person, container) {
  * ("Sarah wants the 12th") and don't have a roster open yet.
  */
 function renderWantedDatesCard(person, container) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const summary = el('div', { className: 'faint' });
 
   // Open on the month of the earliest upcoming request, else this month.
@@ -460,7 +477,7 @@ function renderMaxShiftsCard(person) {
  * happened. They are folded away instead, with a button to clear them.
  */
 function renderAwayCard(person, container) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const all = person.blackouts || [];
   const past = all.filter((b) => b.end < today);
   const current = all.filter((b) => b.end >= today);

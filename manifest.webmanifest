@@ -1,6 +1,6 @@
 {
-  "name": "Rosterm8",
-  "short_name": "Rosterm8",
+  "name": "RosterWarden",
+  "short_name": "RosterWarden",
   "description": "Build a fair staff roster in seconds. Works offline, on your phone.",
   "start_url": "./",
   "scope": "./",

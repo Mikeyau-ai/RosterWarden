@@ -1,12 +1,14 @@
 /**
  * Settings: a hub for everything that isn't building a roster.
  *
- * Holds the People and Shifts editors (which used to be their own tabs),
- * opening hours, the organisation's name, backup/restore, AI assist config,
- * appearance, and the destructive "delete everything" escape hatch.
+ * Three groups, the way InvoiceWarden lays its settings out: your workplace
+ * (people, shifts, name and opening hours), connections to other systems
+ * (Planning Center, AI assist), and the app itself (sync and backup, install,
+ * about). There is no appearance setting: RosterWarden is dark only.
  */
 import { store } from '../store.js';
 import { PROVIDERS } from '../ai.js';
+import { todayISO } from '../scheduler.js';
 import {
   el, fill, toast, promptText, confirmDialog, downloadText, weekdayPicker, copyText,
   TIME_STEP_SECONDS,
@@ -14,65 +16,63 @@ import {
 import { show, refreshOrgs } from '../app.js';
 import * as peopleView from './people.js';
 import * as shiftsView from './shifts.js';
+import * as planningCenter from './planning-center.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
 import * as sync from '../sync.js';
-
-const THEME_KEY = 'rosterm8.theme';
-
-/**
- * Apply a saved theme preference to the document immediately.
- * Run once at module load (below) so the choice survives a page reload, not
- * only after the user revisits Settings and clicks a button.
- */
-function applyTheme(value) {
-  if (value) document.documentElement.dataset.theme = value;
-  else delete document.documentElement.dataset.theme;
-}
-
-// Apply whatever was saved last time, right away at module load.
-applyTheme(localStorage.getItem(THEME_KEY) || '');
 
 /**
  * Which sub-screen is open, or null for the menu.
  *
- * Settings is a hub rather than one long page: it holds the two editors that
- * used to be their own tabs, and stacking People, Shifts and everything else
- * into a single scroll would bury them.
+ * Settings is a hub rather than one long page: it holds the People and Shifts
+ * editors, and stacking those with everything else in one scroll would bury them.
  */
 let section = null;
 
 /** The menu, grouped so setting the place up is separated from app settings. */
 const MENU = [
   {
-    group: 'Set up',
+    group: 'Your workplace',
     items: [
       { id: 'people', label: 'People', hint: 'Who you roster, and the days each can work' },
       { id: 'shifts', label: 'Shifts', hint: 'The blocks of work a rostered day is made of' },
-      { id: 'hours', label: 'Opening hours', hint: 'The days and times you trade' },
+      { id: 'workplace', label: 'Name and opening hours', hint: 'The days you trade, rename or delete' },
     ],
   },
   {
-    group: 'Organisation',
+    group: 'Connections',
     items: [
-      { id: 'organisation', label: 'Organisation', hint: 'Rename or delete this organisation' },
+      { id: 'planning-center', label: 'Planning Center', hint: 'Bring in a team and blockouts, send rosters back' },
+      { id: 'ai', label: 'AI assist', hint: 'Read availability from a pasted message' },
     ],
   },
   {
     group: 'App',
     items: [
-      { id: 'sync', label: 'Sync', hint: 'Keep your rosters on every device, encrypted' },
-      { id: 'backup', label: 'Backup', hint: 'Export your data, or restore it' },
-      { id: 'ai', label: 'AI assist', hint: 'Read availability from typed notes' },
-      { id: 'appearance', label: 'Appearance', hint: 'Light, dark or match the device' },
-      { id: 'install', label: 'Add to Home Screen', hint: 'Keep Rosterm8 one tap away, and working offline' },
-      { id: 'about', label: 'About', hint: 'What this is, and how to erase it' },
+      { id: 'data', label: 'Sync and backup', hint: 'Keep your rosters safe and on every device' },
+      { id: 'install', label: 'Add to Home Screen', hint: 'One tap away, and working offline' },
+      { id: 'about', label: 'About', hint: 'How it works, and erasing everything' },
     ],
   },
 ];
 
+/**
+ * Older section names, from links elsewhere in the app and earlier versions,
+ * mapped onto the sections that now hold them.
+ */
+const LEGACY_SECTIONS = {
+  hours: 'workplace',
+  organisation: 'workplace',
+  sync: 'data',
+  backup: 'data',
+};
+
+/** Sections that describe an organisation, so need one to exist first. */
+const NEEDS_ORG = ['people', 'shifts', 'workplace'];
+
 /** Open Settings at a particular sub-screen, or at the menu when given null. */
 export function openSection(name) {
-  section = name;
+  const id = LEGACY_SECTIONS[name] || name;
+  section = MENU.some((g) => g.items.some((i) => i.id === id)) ? id : null;
 }
 
 /** Entry point: the settings menu, or whichever sub-screen is open. */
@@ -89,10 +89,9 @@ export function render(container) {
   });
   const header = el('div', { className: 'row-tight' }, [backBtn]);
 
-  // Most sections describe an organisation, so there has to be one first.
   // Without this guard the people/shifts editors would happily write records
   // against a null organisation that nothing could ever show again.
-  if (['people', 'shifts', 'hours', 'organisation'].includes(section) && !store.currentOrg()) {
+  if (NEEDS_ORG.includes(section) && !store.currentOrg()) {
     fill(container, [
       header,
       el('h2', { textContent: item?.label || 'Settings' }),
@@ -113,8 +112,7 @@ export function render(container) {
     return;
   }
 
-  // No section heading here: every card below already carries its own, and
-  // two identical headings stacked ("Backup / Backup") just reads as a bug.
+  // No section heading here: every card below already carries its own.
   fill(container, [header, ...renderSectionBody(section, container)]);
 }
 
@@ -137,49 +135,35 @@ function renderMenu(container) {
 
 /** The cards belonging to one sub-screen. */
 function renderSectionBody(name, container) {
-  const org = store.currentOrg();
+  const redraw = () => render(container);
   switch (name) {
-    case 'hours':
-      return org
-        ? [el('div', { className: 'card' }, [
-            el('h3', { textContent: 'Opening hours' }),
-            renderOpeningHours(org),
-          ])]
-        : [el('div', { className: 'card muted', textContent: 'No organisation selected yet.' })];
-    case 'organisation': return [renderOrgCard()];
-    case 'sync': return [renderSyncCard(container)];
-    case 'backup': return [renderBackupCard(container)];
+    case 'workplace': return [renderWorkplaceCard()];
+    case 'planning-center': return [planningCenter.renderCard(redraw)];
     case 'ai': return [renderAICard()];
-    case 'appearance': return [renderThemeCard()];
+    case 'data': return [renderSyncCard(container), renderBackupCard(container)];
     case 'install': return [renderInstallCard(container)];
     case 'about': return [renderAboutCard()];
     default: return [];
   }
 }
 
-/** Section: rename or delete the current organisation. */
-function renderOrgCard() {
+/**
+ * Section: the organisation's name and opening hours, and deleting it.
+ * One card for the things you set once about the place itself.
+ */
+function renderWorkplaceCard() {
   const org = store.currentOrg();
-  if (!org) {
-    return el('div', { className: 'card' }, [
-      el('h3', { textContent: 'This organisation' }),
-      el('div', { className: 'muted', textContent: 'No organisation selected yet.' }),
-    ]);
-  }
-
   const nameInput = el('input', { type: 'text', value: org.name });
-  const saveBtn = el('button', {
-    className: 'btn btn-sm', textContent: 'Save',
-    onclick: () => {
-      const value = nameInput.value.trim();
-      if (!value) return;
-      store.renameOrg(org.id, value);
-      refreshOrgs();
-      toast('Renamed');
-    },
+  nameInput.addEventListener('change', () => {
+    const value = nameInput.value.trim();
+    if (!value) { nameInput.value = org.name; return; }
+    store.renameOrg(org.id, value);
+    refreshOrgs();
+    toast('Renamed');
   });
+
   const deleteBtn = el('button', {
-    className: 'btn btn-danger', textContent: 'Delete organisation',
+    className: 'btn btn-danger btn-block', textContent: 'Delete organisation',
     onclick: async () => {
       const ok = await confirmDialog(
         'Delete organisation',
@@ -194,8 +178,9 @@ function renderOrgCard() {
   });
 
   return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'This organisation' }),
-    el('div', { className: 'row-tight' }, [nameInput, saveBtn]),
+    el('h3', { textContent: 'Name and opening hours' }),
+    el('div', {}, [el('label', { className: 'label', textContent: 'Name' }), nameInput]),
+    renderOpeningHours(org),
     deleteBtn,
   ]);
 }
@@ -300,12 +285,12 @@ function renderBackupCard(container) {
   const exportBtn = el('button', {
     className: 'btn btn-primary btn-block', textContent: 'Export backup',
     onclick: () => {
-      const date = new Date().toISOString().slice(0, 10);
+      const date = todayISO();
       // Include the sync code so one file restores the data *and* the identity
       // the server knows this device by.
       const code = sync.currentCode();
       downloadText(
-        `rosterm8-backup-${date}.json`,
+        `rosterwarden-backup-${date}.json`,
         store.exportJSON(code ? { syncCode: sync.formatCode(code) } : {}),
         'application/json'
       );
@@ -389,34 +374,6 @@ function renderAICard() {
       textContent: 'The key is stored on this device only, and is readable by anyone who can use this ' +
         'device. Fine for personal use - avoid it on a shared phone.',
     }),
-  ]);
-}
-
-/** Section: light/dark/system theme control. */
-function renderThemeCard() {
-  const current = localStorage.getItem(THEME_KEY) || '';
-  const options = [
-    { value: '', label: 'System' },
-    { value: 'light', label: 'Light' },
-    { value: 'dark', label: 'Dark' },
-  ];
-
-  const buttons = options.map((opt) => el('button', {
-    type: 'button',
-    className: `btn btn-sm${opt.value === current ? ' btn-primary' : ''}`,
-    textContent: opt.label,
-    onclick: () => {
-      localStorage.setItem(THEME_KEY, opt.value);
-      applyTheme(opt.value);
-      for (const [i, other] of options.entries()) {
-        buttons[i].className = `btn btn-sm${other.value === opt.value ? ' btn-primary' : ''}`;
-      }
-    },
-  }));
-
-  return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'Theme' }),
-    el('div', { className: 'row' }, buttons),
   ]);
 }
 
@@ -532,16 +489,16 @@ function renderSyncCard(container) {
     el('button', {
       className: 'btn btn-primary btn-block', textContent: 'Send this code to myself',
       onclick: async () => {
-        const body = `Rosterm8 sync code: ${shown}\n\n`
-          + 'Keep this. It is the only key to your rosters — entering it in Rosterm8 '
+        const body = `RosterWarden sync code: ${shown}\n\n`
+          + 'Keep this. It is the only key to your rosters — entering it in RosterWarden '
           + 'on a new phone brings everything back. Nobody can recover it for you, '
           + 'not even whoever runs the server, because nobody else has ever had it.';
         try {
           if (navigator.share) {
-            await navigator.share({ title: 'Rosterm8 sync code', text: body });
+            await navigator.share({ title: 'RosterWarden sync code', text: body });
           } else {
             // No share sheet (most desktop browsers): hand it to the mail client.
-            window.location.href = `mailto:?subject=${encodeURIComponent('Rosterm8 sync code')}`
+            window.location.href = `mailto:?subject=${encodeURIComponent('RosterWarden sync code')}`
               + `&body=${encodeURIComponent(body)}`;
           }
           sync.acknowledgeCode();
@@ -600,7 +557,7 @@ function renderSyncCard(container) {
 }
 
 /**
- * Section: put Rosterm8 on the home screen.
+ * Section: put RosterWarden on the home screen.
  *
  * Three states, because the platforms genuinely differ: already installed,
  * installable via the browser's own prompt, or iOS - where no such API exists
@@ -609,7 +566,7 @@ function renderSyncCard(container) {
 function renderInstallCard(container) {
   const blurb = el('div', {
     className: 'muted',
-    textContent: 'Installed, Rosterm8 opens full screen with its own icon and works '
+    textContent: 'Installed, RosterWarden opens full screen with its own icon and works '
       + 'with no signal at all. This is not an app-store download - nothing lands on '
       + 'the phone but a shortcut and the page itself.',
   });
@@ -681,14 +638,14 @@ function renderAboutCard() {
     'Add your people and tick the days each of them can work.',
     'Set up the shifts a day is made of, and your opening days and hours.',
     'Note who is away, and any two people who should not be rostered together.',
-    'Pick the dates on the calendar and press Build. Rosterm8 spreads the '
+    'Pick the dates on the calendar and press Build. RosterWarden spreads the '
       + 'shifts fairly, honours every constraint, and says so plainly when it '
       + 'cannot fill one.',
   ];
 
   return el('div', { className: 'card' }, [
     el('h3', { textContent: 'About' }),
-    el('div', { textContent: 'Rosterm8' }),
+    el('div', { textContent: 'RosterWarden' }),
     el('div', { className: 'muted', textContent: 'Everything stays on this device.' }),
     el('h4', { textContent: 'How it works' }),
     el('ol', { className: 'install-steps' }, howSteps.map((s) => el('li', { textContent: s }))),

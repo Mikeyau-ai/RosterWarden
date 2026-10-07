@@ -39,6 +39,18 @@ export function fromDays(n) {
   return new Date(n * 86400000).toISOString().slice(0, 10);
 }
 
+/**
+ * Today's date on this device's own clock, as "YYYY-MM-DD".
+ *
+ * Not `toISOString()`: that is UTC, so in Australia it reports yesterday until
+ * mid-morning - the calendar rings the wrong day and this morning's away dates
+ * count as already past.
+ */
+export function todayISO(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 /** Weekday index for a date, Monday=0 through Sunday=6 (matches the UI order). */
 export function weekdayOf(iso) {
   return (new Date(toDays(iso) * 86400000).getUTCDay() + 6) % 7;

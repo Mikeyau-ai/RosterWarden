@@ -8,13 +8,13 @@
 import { store } from '../store.js';
 import { el, fill, confirmDialog, TIME_STEP_SECONDS } from '../ui.js';
 
-/** Entry point: render the shift list into `container`. */
 /** Times a new shift should start with: the organisation's opening hours if set. */
 function defaultTimes() {
   const org = store.currentOrg();
   return { start: org?.openTime || '', end: org?.closeTime || '' };
 }
 
+/** Entry point: render the shift list into `container`. */
 export function render(container) {
   const header = el('div', {}, [
     el('h2', { textContent: 'Shifts' }),

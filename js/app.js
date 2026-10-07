@@ -1,5 +1,5 @@
 /**
- * Rosterm8 bootstrap: loads saved data, wires the nav and organisation
+ * RosterWarden bootstrap: loads saved data, wires the nav and organisation
  * switcher, and hands control to whichever view is showing.
  *
  * Views are plain modules exporting `render(container)`. Switching view simply
@@ -16,6 +16,7 @@ import * as settingsView from './views/settings.js';
 // install event from the moment the app starts, not when Settings is opened.
 import './install.js';
 import * as sync from './sync.js';
+import * as pco from './sources/planning-center.js';
 
 // Three sections. "Roster" is the rosters you have saved - the thing you open
 // the app to look at - and "New Roster" is the builder. People, shifts and
@@ -52,30 +53,42 @@ export function render() {
   container.scrollTop = 0;
 }
 
-/** First-run screen: there is nothing to show until a workplace exists. */
+/** First-run screen: name the workplace right here, no pop-up. */
 function welcome() {
-  const create = async () => {
-    const name = await promptText('New organisation', 'What do you call this workplace?');
-    if (!name) return;
-    store.addOrg(name);
-    seedDefaults();
-    refreshOrgs();
-    show('settings', { section: 'shifts' });
-    toast(`${name} created — set up its shifts`);
+  const nameInput = el('input', {
+    type: 'text', placeholder: 'e.g. Church Cafe', 'aria-label': 'Workplace name',
+  });
+  const create = (event) => {
+    event.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    createOrg(name);
   };
 
-  return el('div', { className: 'card' }, [
-    el('h2', { textContent: 'Welcome to Rosterm8' }),
+  return el('form', { className: 'card', onsubmit: create }, [
+    el('h2', { textContent: 'Welcome to RosterWarden' }),
     el('p', { className: 'muted' }, [
-      'Build a fair roster in seconds: add your people, say which days each of them ' +
-      'can work, and let Rosterm8 do the shuffling. Everything stays on this device.',
+      'Fair rosters in seconds: add your people, say which days each can work, '
+      + 'and RosterWarden does the shuffling. Everything stays on your devices.',
     ]),
-    el('p', { className: 'muted', textContent: 'Start by naming the place you roster for — a cafe, a shop, a team.' }),
+    el('label', { className: 'label', textContent: 'What do you roster for?' }),
+    nameInput,
     el('button', {
-      className: 'btn btn-primary btn-lg btn-block',
-      textContent: 'Create an organisation', onclick: create,
+      type: 'submit', className: 'btn btn-primary btn-lg btn-block', textContent: 'Get started',
     }),
   ]);
+}
+
+/**
+ * Create an organisation with a starter shift and take the user to People,
+ * the next thing a new roster needs (by hand, or from Planning Center).
+ */
+function createOrg(name) {
+  store.addOrg(name);
+  seedDefaults();
+  refreshOrgs();
+  show('settings', { section: 'people' });
+  toast(`${name} created — now add your people`);
 }
 
 /**
@@ -129,12 +142,7 @@ async function onOrgChange(event) {
   if (value === NEW_ORG) {
     const name = await promptText('New organisation', 'What do you call this workplace?');
     refreshOrgs();                       // revert the select if they cancelled
-    if (!name) return;
-    store.addOrg(name);
-    seedDefaults();
-    refreshOrgs();
-    show('settings', { section: 'shifts' });
-    toast(`${name} created — set up its shifts`);
+    if (name) createOrg(name);
     return;
   }
   store.setCurrentOrg(Number(value));
@@ -208,6 +216,24 @@ function init() {
   show(location.hash.slice(1) || 'roster');
   registerWorker();
   startSync();
+  finishPlanningCenterSignIn();
+}
+
+/**
+ * Coming back from Planning Center's sign-in page: swap the code for a token
+ * and open the Planning Center settings so the next step (pick a team) is
+ * right there.
+ */
+async function finishPlanningCenterSignIn() {
+  try {
+    const outcome = await pco.finishSignIn();
+    if (!outcome) return;
+    show('settings', { section: 'planning-center' });
+    toast(outcome === 'connected' ? 'Connected to Planning Center' : 'Planning Center sign-in cancelled');
+  } catch (err) {
+    show('settings', { section: 'planning-center' });
+    toast(err instanceof pco.PCOError ? err.message : 'Planning Center sign-in failed');
+  }
 }
 
 /**

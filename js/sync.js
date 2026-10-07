@@ -8,8 +8,8 @@
  * How one secret produces two different things:
  *
  *   secret  (32 random bytes, shown to the user as the sync code)
- *     ├─ SHA-256("rosterm8-id:"  + secret) ──▶ storage id   → SENT to the server
- *     └─ SHA-256("rosterm8-key:" + secret) ──▶ AES-GCM key  → NEVER sent
+ *     ├─ SHA-256("rosterwarden-id:"  + secret) ──▶ storage id   → SENT to the server
+ *     └─ SHA-256("rosterwarden-key:" + secret) ──▶ AES-GCM key  → NEVER sent
  *
  * Both are derived from the same secret but neither can be worked back to the
  * other, so the server learns nothing about the key from the id it is given.
@@ -24,19 +24,19 @@
 import { SYNC_URL } from './config.js';
 
 /** localStorage key holding this device's sync secret. */
-const SECRET_KEY = 'rosterm8.sync.secret';
+const SECRET_KEY = 'rosterwarden.sync.secret';
 
 /** Set when the user has deliberately turned sync off on this device. */
-const OFF_KEY = 'rosterm8.sync.off';
+const OFF_KEY = 'rosterwarden.sync.off';
 
 /** Set once the user has confirmed they have written their code down. */
-const ACK_KEY = 'rosterm8.sync.ack';
+const ACK_KEY = 'rosterwarden.sync.ack';
 
 /** Server timestamp this device last agreed with. */
-const SYNCED_AT_KEY = 'rosterm8.sync.at';
+const SYNCED_AT_KEY = 'rosterwarden.sync.at';
 
 /** When this device last changed the data itself. */
-const CHANGED_AT_KEY = 'rosterm8.sync.changed';
+const CHANGED_AT_KEY = 'rosterwarden.sync.changed';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -106,8 +106,8 @@ async function sha256(text) {
  */
 export async function deriveKeys(code) {
   const secret = normaliseCode(code);
-  const idBytes = await sha256(`rosterm8-id:${secret}`);
-  const keyBytes = await sha256(`rosterm8-key:${secret}`);
+  const idBytes = await sha256(`rosterwarden-id:${secret}`);
+  const keyBytes = await sha256(`rosterwarden-key:${secret}`);
 
   const storageId = [...new Uint8Array(idBytes)]
     .map((b) => b.toString(16).padStart(2, '0')).join('');

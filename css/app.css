@@ -1,9 +1,9 @@
 /* ───────────────────────────────────────────────────────────────────────────
-   Rosterm8 — mobile-first stylesheet.
+   RosterWarden — mobile-first stylesheet.
 
-   Carries the desktop app's family palette (RamBo near-black, Rosterm8 purple)
-   into the browser, with a full light theme because this gets used on a phone
-   in daylight. Everything is token-driven so both themes stay in step.
+   The Sixth Day Studios dark palette shared with InvoiceWarden and RamWarden
+   (near-black surfaces, teal accent). Dark-only: contrast is kept high so it
+   stays readable on a phone outdoors. Everything is token-driven.
 
    System fonts throughout, deliberately: this is an offline-first installed app
    and a webfont request would block first paint on a bad connection.
@@ -11,21 +11,21 @@
 
 :root {
   --bg:        #121212;
-  --surface:   #191819;
-  --surface-2: #201f21;
-  --raised:    #2a282c;
-  --line:      #2e2c30;
-  --ink:       #e6e3e8;
-  --ink-dim:   #9b95a1;
-  --ink-faint: #6a6470;
+  --surface:   #1a1a1a;
+  --surface-2: #1f1f1f;
+  --raised:    #272727;
+  --line:      #2e2e2e;
+  --ink:       #e8e8e8;
+  --ink-dim:   #a8a8a8;
+  --ink-faint: #919191;
 
-  --accent:    #b06ed8;
-  --accent-in: #17101c;   /* text on an accent fill */
-  --accent-lo: #2a1f33;
+  --accent:    #2cc4a8;
+  --accent-in: #06201b;   /* text on an accent fill */
+  --accent-lo: #123a33;
 
   --ok:        #5cc561;
-  --warn:      #e0a040;
-  --bad:       #e05252;
+  --warn:      #e8b04a;
+  --bad:       #e86060;
 
   --radius:  10px;
   --radius-s: 7px;
@@ -34,45 +34,6 @@
 
   --shadow: 0 6px 24px rgba(0,0,0,.35);
   color-scheme: dark;
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg:        #f4f2f7;
-    --surface:   #ffffff;
-    --surface-2: #f0ecf4;
-    --raised:    #e7e1ee;
-    --line:      #ded8e4;
-    --ink:       #201d24;
-    --ink-dim:   #5d5566;
-    --ink-faint: #857d8f;
-    --accent:    #7b3fa0;
-    --accent-in: #ffffff;
-    --accent-lo: #f2e9f8;
-    --ok:        #2f8a44;
-    --warn:      #9a6410;
-    --bad:       #b8332f;
-    --shadow: 0 6px 24px rgba(40,25,55,.14);
-    color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-  --bg:        #f4f2f7;
-  --surface:   #ffffff;
-  --surface-2: #f0ecf4;
-  --raised:    #e7e1ee;
-  --line:      #ded8e4;
-  --ink:       #201d24;
-  --ink-dim:   #5d5566;
-  --ink-faint: #857d8f;
-  --accent:    #7b3fa0;
-  --accent-in: #ffffff;
-  --accent-lo: #f2e9f8;
-  --ok:        #2f8a44;
-  --warn:      #9a6410;
-  --bad:       #b8332f;
-  --shadow: 0 6px 24px rgba(40,25,55,.14);
-  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -114,14 +75,18 @@ p  { margin: 0 0 .75rem; }
   padding: .6rem .9rem;
 }
 .brand { display: flex; align-items: center; gap: .55rem; flex: none; }
-.brand-tile {
-  width: 26px; height: 26px; border-radius: 6px; background: var(--accent);
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5px;
-  padding: 5px 4px 4px;
+/* Inline SVG shield-and-calendar mark, glowing teal like the sibling products. */
+.brand-mark {
+  width: 26px; height: 26px; flex: none;
+  fill: none; stroke: var(--accent); stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(44,196,168,.55));
 }
-.brand-tile i { background: #fff; opacity: .45; border-radius: 1px; }
-.brand-tile i:nth-child(1), .brand-tile i:nth-child(5) { opacity: 1; }
-.brand-name { font-weight: 750; letter-spacing: .04em; font-size: .82rem; }
+.brand-name {
+  font-weight: 800; letter-spacing: .06em; font-size: .82rem;
+  text-transform: uppercase; color: var(--accent);
+  text-shadow: 0 0 10px rgba(44,196,168,.45);
+}
 
 .org-switch { margin-left: auto; min-width: 0; }
 .org-switch select {
@@ -190,6 +155,10 @@ button:focus-visible {
   -webkit-tap-highlight-color: transparent;
 }
 .btn:active { transform: translateY(1px); }
+/* Teal edge on hover, only where a real pointer exists (not sticky on touch). */
+@media (hover: hover) {
+  .btn:hover:not(:disabled), .item:hover { border-color: var(--accent); }
+}
 .btn:disabled { opacity: .5; cursor: default; }
 .btn-primary { background: var(--accent); color: var(--accent-in); border-color: transparent; }
 .btn-danger  { background: transparent; color: var(--bad); border-color: var(--bad); }
@@ -315,7 +284,6 @@ button:focus-visible {
   cursor: pointer; text-align: left; width: 100%;
   font: inherit; color: var(--ink);
 }
-.item:hover { border-color: var(--accent); }
 .item-main { flex: 1; min-width: 0; }
 .item-title { font-weight: 600; }
 .item-sub { font-size: .84rem; color: var(--ink-dim); }

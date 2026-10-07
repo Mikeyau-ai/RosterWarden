@@ -1,14 +1,20 @@
-# Cloudflare Worker that stores each device's encrypted Rosterm8 database.
+# Cloudflare Worker that stores each device's encrypted RosterWarden database.
 #
 # Deploy:  npx wrangler deploy      (see README.md for first-time setup)
 
-name = "rosterm8-sync"
+name = "rosterwarden-sync"
 main = "src/index.js"
 compatibility_date = "2024-11-01"
 
-# Created by:  npx wrangler d1 create rosterm8
+# Created by:  npx wrangler d1 create rosterm8  (before the rename to RosterWarden)
 # Paste the database_id that command prints into the line below.
 [[d1_databases]]
 binding = "DB"
-database_name = "rosterm8"
+database_name = "rosterm8"   # the D1 database keeps its original name; only its id matters
 database_id = "c9f30187-1580-417f-a6e0-12b6c45cca3c"
+
+# Planning Center sign-in. The client id is public (it also sits in js/config.js);
+# the secret is NOT kept here - set it once with:
+#   npx wrangler secret put PCO_CLIENT_SECRET
+[vars]
+PCO_CLIENT_ID = ""

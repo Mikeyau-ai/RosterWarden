@@ -1,5 +1,5 @@
 /**
- * Rosterm8 sync worker.
+ * RosterWarden sync worker.
  *
  * A deliberately dumb blob store: it takes an opaque lump of bytes under an
  * opaque id, and hands it back on request. It has no idea what a roster is,
@@ -10,12 +10,21 @@
  * other people's staff names and availability would make you responsible for
  * them; hosting ciphertext you cannot decrypt does not.
  *
- * Two endpoints:
+ * Sync endpoints:
  *   GET  /db/:id  ->  { ciphertext, iv, updatedAt }   (404 if never written)
  *   PUT  /db/:id  <-  { ciphertext, iv, updatedAt }
  *
  * `:id` is a 64-character hex SHA-256 derived from the user's secret. It is
  * unguessable, and it is NOT the encryption key - see js/sync.js.
+ *
+ * Planning Center sign-in endpoints (see js/sources/planning-center.js):
+ *   POST /pco/token    <- { code, redirect_uri }   -> Planning Center's token response
+ *   POST /pco/refresh  <- { refresh_token }        -> Planning Center's token response
+ *
+ * These exist only because swapping a sign-in code for a token needs the app's
+ * client secret, which cannot ship inside a web page. The worker adds the
+ * secret, passes the request on, and hands the tokens straight back - it
+ * stores nothing, and roster data never comes through here.
  */
 
 /** Biggest blob accepted, in bytes. A large roster is a few tens of KB. */
@@ -28,7 +37,7 @@ const ID_PATTERN = /^[0-9a-f]{64}$/;
 function cors(origin) {
   return {
     'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
@@ -50,6 +59,13 @@ export default {
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors(origin) });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/pco/token') {
+      return pcoToken(request, env, origin, 'authorization_code');
+    }
+    if (request.method === 'POST' && url.pathname === '/pco/refresh') {
+      return pcoToken(request, env, origin, 'refresh_token');
     }
 
     const match = url.pathname.match(/^\/db\/([^/]+)$/);
@@ -105,4 +121,61 @@ async function write(id, request, env, origin) {
     .run();
 
   return json({ ok: true, updatedAt: stamp }, 200, origin);
+}
+
+/**
+ * Exchange a Planning Center sign-in code (or refresh token) for tokens.
+ *
+ * `PCO_CLIENT_ID` is a plain var in wrangler.toml; `PCO_CLIENT_SECRET` is a
+ * Worker secret (`npx wrangler secret put PCO_CLIENT_SECRET`). Planning Center
+ * itself checks `redirect_uri` against the app's registered list, so a code
+ * cannot be redeemed for some other site.
+ */
+async function pcoToken(request, env, origin, grantType) {
+  if (!env.PCO_CLIENT_ID || !env.PCO_CLIENT_SECRET) {
+    return json({ error: 'Planning Center is not set up on this server yet.' }, 501, origin);
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Body must be JSON' }, 400, origin);
+  }
+
+  const form = { grant_type: grantType, client_id: env.PCO_CLIENT_ID, client_secret: env.PCO_CLIENT_SECRET };
+  if (grantType === 'authorization_code') {
+    if (typeof body?.code !== 'string' || typeof body?.redirect_uri !== 'string') {
+      return json({ error: 'code and redirect_uri are required' }, 400, origin);
+    }
+    form.code = body.code;
+    form.redirect_uri = body.redirect_uri;
+  } else {
+    if (typeof body?.refresh_token !== 'string') {
+      return json({ error: 'refresh_token is required' }, 400, origin);
+    }
+    form.refresh_token = body.refresh_token;
+  }
+
+  let res;
+  try {
+    res = await fetch('https://api.planningcenteronline.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(form),
+    });
+  } catch {
+    return json({ error: 'Could not reach Planning Center. Try again in a moment.' }, 502, origin);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // Pass Planning Center's own reason on; it is the useful part of the error.
+    const reason = data.error_description || data.error || `HTTP ${res.status}`;
+    return json({ error: `Planning Center refused the sign-in: ${reason}` }, 400, origin);
+  }
+  return json({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    expires_in: data.expires_in,
+  }, 200, origin);
 }

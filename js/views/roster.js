@@ -7,13 +7,15 @@
  */
 import { store } from '../store.js';
 import {
-  buildRoster, formatTable, counts, formatDate, toDays, fromDays, auditRoster,
+  buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO,
 } from '../scheduler.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
-  el, fill, toast, confirmDialog, calendarPicker, copyText, emptyState,
+  el, fill, toast, confirmDialog, calendarPicker, emptyState,
 } from '../ui.js';
-import { editableDayCards } from './roster-edit.js';
+import {
+  editableDayCards, dayCards, tally, notesBox, copyShareButtons,
+} from './roster-parts.js';
 import { show } from '../app.js';
 
 // The most recently built roster, kept across re-renders (e.g. after Save)
@@ -44,11 +46,6 @@ let requestsOpen = false;
 // Whether the built roster is in manual-edit mode. Kept across the result
 // section's own re-renders, reset on a full page render (leaving/returning).
 let editing = false;
-
-/** Today's date as "YYYY-MM-DD". */
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 /** Entry point: render the build form, optional AI notes box, and any result. */
 export function render(container) {
@@ -259,7 +256,6 @@ export function render(container) {
   fill(container, [
     formCard,
     requestsWrap,
-    availabilityDetails(container),
     actionCard,
     ready ? null : buildControl,
     resultsBox,
@@ -294,6 +290,7 @@ function requestsSection(container) {
         ? 'Pick the dates above first, then set who asked for what.'
         : 'Add some people first.',
     }));
+    details.append(...[availabilityNotes(container)].filter(Boolean));
     return details;
   }
 
@@ -343,27 +340,27 @@ function requestsSection(container) {
     ]));
   }
 
+  details.append(...[availabilityNotes(container)].filter(Boolean));
   return details;
 }
 
-/** Build the collapsible "read availability from free text" section. */
-function availabilityDetails(container) {
-  const textarea = el('textarea', {
-    rows: 4,
-    placeholder: 'e.g. Sarah can only do Saturdays\nTom away 5-9 June\ndon\'t put Rachel and Kate on together',
-  });
-  const aiBtn = el('button', { className: 'btn', textContent: 'Read notes with AI' });
-  const err = el('div', { className: 'err' });
-
+/**
+ * "Paste a message": read requests, away dates and clashes out of free text
+ * with AI. Lives at the foot of Requests and days off, and only appears once
+ * an AI key is set - a permanently disabled box is just clutter.
+ */
+function availabilityNotes(container) {
+  const apiKey = store.setting('aiKey');
+  if (!apiKey) return null;
   const provider = store.setting('aiProvider');
   const model = store.setting('aiModel');
-  const apiKey = store.setting('aiKey');
 
-  let noKeyNote = null;
-  if (!apiKey) {
-    aiBtn.disabled = true;
-    noKeyNote = el('div', { className: 'muted', textContent: 'Add an API key in Settings to use this' });
-  }
+  const textarea = el('textarea', {
+    rows: 3,
+    placeholder: 'e.g. Sarah can only do Saturdays\nTom away 5-9 June',
+  });
+  const aiBtn = el('button', { className: 'btn btn-sm', textContent: 'Read with AI' });
+  const err = el('div', { className: 'err' });
 
   aiBtn.addEventListener('click', async () => {
     err.textContent = '';
@@ -415,48 +412,31 @@ function availabilityDetails(container) {
       err.textContent = e instanceof AIError ? e.message : 'Something went wrong reading those notes.';
     } finally {
       aiBtn.disabled = false;
-      aiBtn.textContent = 'Read notes with AI';
+      aiBtn.textContent = 'Read with AI';
     }
   });
 
-  return el('details', {}, [
-    el('summary', { textContent: 'Add availability from notes' }),
-    el('div', { className: 'card' }, [textarea, noKeyNote, aiBtn, err]),
+  return el('div', { className: 'req-person' }, [
+    el('div', { className: 'req-name', textContent: 'Or paste a message' }),
+    textarea, aiBtn, err,
   ]);
 }
 
 /** Build the day-by-day result view, tally and action buttons for `built`. */
 function buildResultView(container, rerender) {
-  const { roster, days } = built;
+  const { roster } = built;
   const people = store.people();
   const shifts = store.shifts();
-  const nodes = [];
 
-  // A shortfall must be impossible to miss, so it goes above the schedule.
-  if (roster.notes.length > 0) {
-    nodes.push(el('div', { className: 'notice bad' }, [
-      el('strong', { textContent: `${roster.notes.length} thing${roster.notes.length === 1 ? '' : 's'} to check` }),
-      el('ul', {}, roster.notes.map((n) => el('li', { textContent: n }))),
-    ]));
-  }
-
-  if (editing) {
-    const apply = (next) => {
+  const cards = editing
+    ? editableDayCards(roster, people, shifts, (next) => {
       roster.assignments = next;
       roster.notes = auditRoster(roster, store.people(), store.shifts());
       rerender();
-    };
-    nodes.push(...editableDayCards(roster, people, shifts, apply));
-  } else {
-    nodes.push(...renderDayCards(roster, people, shifts, days));
-  }
-  nodes.push(renderTally(roster, people));
+    })
+    : dayCards(roster, people, shifts);
 
   const actions = [
-    el('button', {
-      className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
-      onclick: () => { editing = !editing; rerender(); },
-    }),
     el('button', {
       className: 'btn btn-primary', textContent: 'Save',
       onclick: () => {
@@ -467,77 +447,22 @@ function buildResultView(container, rerender) {
           draftId = null;
         }
         store.saveRoster(roster);
-        toast('Saved');
+        toast('Saved — find it under Roster');
         render(container);
       },
     }),
     el('button', {
-      className: 'btn', textContent: 'Copy',
-      onclick: () => copyText(formatTable(roster, people, shifts)),
+      className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
+      onclick: () => { editing = !editing; rerender(); },
     }),
+    ...copyShareButtons(roster, people, shifts),
   ];
-  if (navigator.share) {
-    actions.push(el('button', {
-      className: 'btn', textContent: 'Share',
-      onclick: async () => {
-        try {
-          await navigator.share({ title: roster.name, text: formatTable(roster, people, shifts) });
-        } catch (e) {
-          if (e && e.name === 'AbortError') return; // dismissing the sheet is not an error
-        }
-      },
-    }));
-  }
-  nodes.push(el('div', { className: 'row' }, actions));
 
-  return nodes;
-}
-
-/**
- * One `day-card` per rostered date, with one `day-shift` row per shift.
- * `days` and `shifts` come from the moment the roster was built, so every
- * shift on every day is represented even if it ended up with nobody on it.
- */
-function renderDayCards(roster, people, shifts, days) {
-  const peopleById = new Map(people.map((p) => [p.id, p.name]));
-
-  return days.map((day) => {
-    const rows = shifts.map((shift) => {
-      const names = roster.assignments
-        .filter((a) => a.date === day && a.shiftId === shift.id)
-        .map((a) => peopleById.get(a.personId) || '(removed)');
-
-      let whoText = names.join(', ');
-      let gap = false;
-      if (names.length === 0) {
-        whoText = 'Nobody available';
-        gap = true;
-      } else if (names.length < shift.headcount) {
-        whoText += ` (needs ${shift.headcount - names.length} more)`;
-        gap = true;
-      }
-
-      return el('div', { className: 'day-shift' }, [
-        el('span', { className: 'sname', textContent: shift.name }),
-        el('span', { className: gap ? 'swho gap' : 'swho', textContent: whoText }),
-      ]);
-    });
-
-    return el('div', { className: 'day-card' }, [
-      el('div', { className: 'day-date', textContent: formatDate(day) }),
-      ...rows,
-    ]);
-  });
-}
-
-/** "Who's on how much": one chip per person, busiest first. */
-function renderTally(roster, people) {
-  const peopleById = new Map(people.map((p) => [p.id, p.name]));
-  const entries = [...counts(roster).entries()]
-    .map(([id, n]) => [peopleById.get(id) || '(removed)', n])
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
-  return el('div', { className: 'tally' }, entries.map(([name, n]) => (
-    el('span', { className: 'chip' }, [`${name} `, el('b', { textContent: String(n) })])
-  )));
+  // A shortfall must be impossible to miss, so it goes above the schedule.
+  return [
+    notesBox(roster),
+    ...cards,
+    tally(roster, people),
+    el('div', { className: 'row' }, actions),
+  ];
 }

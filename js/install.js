@@ -1,7 +1,7 @@
 /**
  * "Add to Home Screen" support.
  *
- * Rosterm8 is meant to live on a phone's home screen, where it opens full
+ * RosterWarden is meant to live on a phone's home screen, where it opens full
  * screen and works offline - but that only happens if someone installs it, and
  * the browser's own prompt is easy to miss. This captures the install event so
  * Settings can offer a button instead.

@@ -1,5 +1,5 @@
 /**
- * On-device storage for Rosterm8.
+ * On-device storage for RosterWarden.
  *
  * Everything lives in one JSON blob in localStorage. There is no server and no
  * account: the roster never leaves the device it was made on. A roster for a
@@ -12,7 +12,7 @@
  * organisation. Switching organisation swaps the entire working set.
  */
 
-const KEY = 'rosterm8.v1';
+const KEY = 'rosterwarden.v1';
 
 /**
  * Current shape of the saved data.
@@ -406,6 +406,23 @@ export const store = {
     this.save();
   },
 
+  /**
+   * Swap every away date a person got from `source` (e.g. 'pco') for `ranges`.
+   *
+   * Imported dates are tagged with where they came from, so a refresh can
+   * replace them wholesale - a blockout deleted in Planning Center disappears
+   * here too - without touching away dates typed in by hand.
+   */
+  replaceSourcedBlackouts(personId, source, ranges) {
+    const person = this.data.people.find((p) => p.id === personId);
+    if (!person) return;
+    person.blackouts = [
+      ...(person.blackouts || []).filter((b) => b.source !== source),
+      ...ranges.map((r) => ({ start: r.start, end: r.end, reason: r.reason || '', source })),
+    ].sort((x, y) => x.start.localeCompare(y.start));
+    this.save();
+  },
+
   /** Remove one blackout range by its position in the person's list. */
   deleteBlackout(personId, index) {
     const person = this.data.people.find((p) => p.id === personId);
@@ -558,7 +575,7 @@ export const store = {
 
   /**
    * Replace everything with a previously exported backup.
-   * Throws with a readable message if the file is not a Rosterm8 export, so the
+   * Throws with a readable message if the file is not a RosterWarden export, so the
    * caller can show it verbatim rather than inventing its own wording.
    */
   importJSON(text) {
@@ -566,10 +583,10 @@ export const store = {
     try {
       parsed = JSON.parse(text);
     } catch {
-      throw new Error("That file isn't valid JSON - pick a Rosterm8 backup file.");
+      throw new Error("That file isn't valid JSON - pick a RosterWarden backup file.");
     }
     if (!parsed || !Array.isArray(parsed.orgs) || !Array.isArray(parsed.people)) {
-      throw new Error("That doesn't look like a Rosterm8 backup.");
+      throw new Error("That doesn't look like a RosterWarden backup.");
     }
     // The sync code rides along in the file but is not part of the database;
     // the caller decides whether to adopt it.

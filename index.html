@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Rosterm8</title>
+<title>RosterWarden</title>
 <meta name="description" content="Build a fair staff roster in seconds. Works offline, on your phone.">
 
 <!-- Installable web app: these make "Add to Home Screen" behave like a real app. -->
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#121212" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f7f5f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121212">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Rosterm8">
+<meta name="apple-mobile-web-app-title" content="RosterWarden">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="stylesheet" href="css/app.css">
 </head>
@@ -23,8 +23,9 @@
 <header class="appbar">
   <div class="appbar-inner">
     <div class="brand">
-      <span class="brand-tile" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-      <span class="brand-name">ROSTERM8</span>
+      <!-- Shield outline holding a tiny calendar -->
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l8 3v5.8c0 5-3.4 8.6-8 10.2-4.6-1.6-8-5.2-8-10.2V5.5z"/><rect x="8" y="8.5" width="8" height="7" rx="1"/><path d="M8 11h8M10.5 13.2h.01M13.5 13.2h.01"/></svg>
+      <span class="brand-name">RosterWarden</span>
     </div>
     <div class="org-switch">
       <select id="org-select" aria-label="Organisation"></select>
