@@ -17,4 +17,4 @@ database_id = "c9f30187-1580-417f-a6e0-12b6c45cca3c"
 # the secret is NOT kept here - set it once with:
 #   npx wrangler secret put PCO_CLIENT_SECRET
 [vars]
-PCO_CLIENT_ID = ""
+PCO_CLIENT_ID = "6dc7467984d3076ce47c59207e55cdbe0c652518ff890d44ef36351bdc2fe054"

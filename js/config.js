@@ -24,4 +24,4 @@ export const SYNC_URL = 'https://rosterm8-sync.mikey-257.workers.dev';
  * into worker/wrangler.toml, and store the secret on the worker (see
  * worker/README.md). Sign-in uses SYNC_URL's worker for the token swap.
  */
-export const PCO_CLIENT_ID = '';
+export const PCO_CLIENT_ID = '6dc7467984d3076ce47c59207e55cdbe0c652518ff890d44ef36351bdc2fe054';

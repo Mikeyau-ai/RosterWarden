@@ -73,9 +73,13 @@ export async function disconnect() {
   }
 }
 
-/** The address Planning Center sends people back to: this page, minus any query. */
+/**
+ * The address Planning Center sends people back to: this page's folder, minus
+ * any query and any "index.html", so it always matches the callback URL
+ * registered with Planning Center (which has to match exactly).
+ */
 function redirectUri() {
-  return location.origin + location.pathname;
+  return location.origin + location.pathname.replace(/index\.html$/, '');
 }
 
 /** Bytes as unpadded base64url, the encoding PKCE uses. */
