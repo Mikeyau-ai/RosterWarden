@@ -13,7 +13,7 @@
  *
  * Example: 'https://rosterwarden-sync.your-name.workers.dev'
  */
-export const SYNC_URL = 'https://rosterm8-sync.mikey-257.workers.dev';
+export const SYNC_URL = 'https://rosterwarden-sync.mikey-257.workers.dev';
 
 /**
  * Planning Center OAuth client id (public - it is in every sign-in link).
