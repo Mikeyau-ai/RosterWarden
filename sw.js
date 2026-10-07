@@ -30,6 +30,7 @@ const SHELL = [
   './js/scheduler.js',
   './js/ai.js',
   './js/people-import.js',
+  './js/export.js',
   './js/install.js',
   './js/sync.js',
   './js/config.js',

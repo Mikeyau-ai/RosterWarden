@@ -224,6 +224,23 @@ test('sendRoster adds what is missing, skips what is there, and reports the rest
   });
 });
 
+test('sending quietly adds people without preparing notifications, and lists the plans', async () => {
+  signIn();
+  routes = (method, url, body) => {
+    if (url.includes('/plans?')) {
+      return { data: [{ id: 'p1', attributes: { sort_date: '2026-10-11T09:00:00Z',
+        planning_center_url: 'https://services.planningcenteronline.com/plans/p1' } }], links: {} };
+    }
+    if (method === 'GET') return { data: [], links: {} };
+    return { data: { id: 'new', attributes: body.data.attributes } };
+  };
+  const result = await pco.sendRoster([{ date: '2026-10-11', shiftId: 1, personId: 11 }], {
+    teamId: '5', serviceTypeId: '9', personPcoId: () => '302', positionFor: () => 'Barista',
+  }, { notify: false });
+  assert.equal(calls.find((c) => c.method === 'POST').body.data.attributes.prepare_notification, false);
+  assert.deepEqual(result.plans, [{ date: '2026-10-11', url: 'https://services.planningcenteronline.com/plans/p1' }]);
+});
+
 test('a rate-limited request waits and retries', async () => {
   signIn();
   let first = true;

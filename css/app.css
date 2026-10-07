@@ -493,3 +493,34 @@ pre.roster-text {
   word-break: break-all; text-align: center;
   user-select: all;
 }
+
+/* ── export menu ─────────────────────────────────────────────────────── */
+.export-row {
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+  padding: .6rem .75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--radius-s);
+}
+.export-row .item-main { flex: 1 1 12rem; }
+.export-row .row-tight { flex: none; }
+
+/* ── printing a roster ───────────────────────────────────────────────────
+   printRoster() adds #print-sheet and body.printing; everything else is
+   hidden so the page is just the roster, black on white whatever the theme. */
+#print-sheet { display: none; }
+@media print {
+  body.printing > :not(#print-sheet) { display: none !important; }
+  body.printing { background: #fff; color: #000; display: block; }
+  body.printing #print-sheet { display: block; font-size: 11pt; }
+  #print-sheet h1 { font-size: 16pt; margin: 0 0 10pt; }
+  #print-sheet table { width: 100%; border-collapse: collapse; }
+  #print-sheet th, #print-sheet td {
+    border: 1px solid #999; padding: 5pt 7pt; text-align: left; vertical-align: top;
+  }
+  #print-sheet th { background: #eee; }
+  #print-sheet tr { break-inside: avoid; }
+  #print-sheet .print-date { white-space: nowrap; font-weight: 600; }
+  #print-sheet .print-times { font-weight: 400; font-size: 9pt; color: #444; }
+  #print-sheet .print-gap { font-style: italic; color: #a33; font-size: 9pt; }
+  #print-sheet .print-foot { margin-top: 10pt; font-size: 8pt; color: #666; }
+}

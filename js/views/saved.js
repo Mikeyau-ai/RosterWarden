@@ -7,7 +7,7 @@ import { store } from '../store.js';
 import { formatDate, auditRoster } from '../scheduler.js';
 import { el, fill, toast, confirmDialog, emptyState } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, copyShareButtons,
+  editableDayCards, dayCards, tally, notesBox, exportButton,
 } from './roster-parts.js';
 import * as planningCenter from './planning-center.js';
 import { show } from '../app.js';
@@ -161,7 +161,7 @@ function renderOpen(roster, container) {
       className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
       onclick: () => { editing = !editing; render(container); },
     }),
-    ...copyShareButtons(roster, people, shifts),
+    exportButton(roster, people, shifts),
     planningCenter.canSend() ? planningCenter.sendButton(roster) : null,
     el('button', {
       className: 'btn btn-danger', textContent: 'Delete',

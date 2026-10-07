@@ -419,18 +419,24 @@ export async function plansBetween(serviceTypeId, first, last) {
  * Put a roster's people into the matching Planning Center plans.
  *
  * Each assignment becomes a plan team member for the org's team, in the
- * position its shift is mapped to, marked Unconfirmed with a *prepared*
- * notification. Nothing reaches a volunteer until someone presses Send in
- * Planning Center - this only fills the schedule in.
+ * position its shift is mapped to, marked Unconfirmed. With `notify` the
+ * notification is *prepared*, ready for someone to press Send in Planning
+ * Center; without it, people are added quietly and never notified. (The API
+ * has no way to send notifications itself - checked on a live account - so
+ * Send in Planning Center is always the last step.)
  *
  * Anything already on the plan in that position is left as it is, so sending
  * the same roster twice does not double anyone up. Returns a summary of what
  * happened, including what could not be sent and why.
  *
  * `lookup` is `{ teamId, serviceTypeId, personPcoId(personId), positionFor(shiftId) }`.
+ * The result's `plans` lists each plan that gained someone, with its date and
+ * its address in Planning Center, so the user can go straight there to Send.
  */
-export async function sendRoster(assignments, lookup, onProgress = () => {}) {
-  const result = { added: 0, already: 0, noPlan: new Set(), unlinked: new Set(), unmapped: new Set() };
+export async function sendRoster(assignments, lookup, { notify = true } = {}, onProgress = () => {}) {
+  const result = {
+    added: 0, already: 0, plans: [], noPlan: new Set(), unlinked: new Set(), unmapped: new Set(),
+  };
   const sendable = [];
   for (const a of assignments) {
     const pcoId = lookup.personPcoId(a.personId);
@@ -462,6 +468,7 @@ export async function sendRoster(assignments, lookup, onProgress = () => {}) {
       `${m.relationships?.person?.data?.id}|${m.attributes.team_position_name}`
     )));
 
+    const addedBefore = result.added;
     for (const a of todays) {
       const key = `${a.pcoId}|${a.position}`;
       if (onPlan.has(key)) {
@@ -477,7 +484,7 @@ export async function sendRoster(assignments, lookup, onProgress = () => {}) {
                 team_id: Number(lookup.teamId),
                 team_position_name: a.position,
                 status: 'U',
-                prepare_notification: true,
+                prepare_notification: notify,
               },
             },
           },
@@ -487,6 +494,9 @@ export async function sendRoster(assignments, lookup, onProgress = () => {}) {
       }
       done += 1;
       onProgress(done, sendable.length);
+    }
+    if (result.added > addedBefore) {
+      result.plans.push({ date, url: plan.attributes.planning_center_url || null });
     }
   }
   return result;

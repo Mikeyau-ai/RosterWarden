@@ -8,8 +8,11 @@
  * going back to change availability and rebuilding would reshuffle everything
  * else. This lets the roster be nudged in place instead.
  */
-import { el, copyText } from '../ui.js';
-import { formatDate, toDays, weekdayOf, counts, formatTable } from '../scheduler.js';
+import { el, copyText, dialog, downloadText } from '../ui.js';
+import { formatDate, toDays, weekdayOf, counts } from '../scheduler.js';
+import {
+  rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
+} from '../export.js';
 
 /**
  * People who could be put on `date` without double-booking them or working
@@ -102,19 +105,6 @@ export function editableDayCards(roster, people, shifts, apply) {
 }
 
 /**
- * The dates a roster covers, in order.
- *
- * Prefers the day list recorded when it was built, so a day where nothing
- * could be filled still shows. Rosters saved before that field existed fall
- * back to the dates that actually got someone.
- */
-export function rosterDays(roster) {
-  return roster.days?.length
-    ? [...roster.days].sort()
-    : [...new Set(roster.assignments.map((a) => a.date))].sort();
-}
-
-/**
  * Read-only day cards: one per date, one row per shift.
  *
  * Every current shift is shown on every day, so a shift nobody could take
@@ -179,26 +169,121 @@ export function notesBox(roster) {
   ]);
 }
 
+/** The Share / export button for a roster; opens the export menu. */
+export function exportButton(roster, people, shifts) {
+  return el('button', {
+    className: 'btn', textContent: 'Share / export',
+    onclick: () => openExport(roster, people, shifts),
+  });
+}
+
 /**
- * Copy, and Share where the device has a share sheet, for a roster as text.
- * Dismissing the share sheet is not an error, so it is swallowed.
+ * Hand text to the phone's share sheet, falling back to the clipboard where
+ * there is none. Closing the share sheet is not an error, so it is swallowed.
  */
-export function copyShareButtons(roster, people, shifts) {
-  const text = () => formatTable(roster, people, shifts);
-  const buttons = [
-    el('button', { className: 'btn', textContent: 'Copy', onclick: () => copyText(text()) }),
-  ];
-  if (navigator.share) {
-    buttons.push(el('button', {
-      className: 'btn', textContent: 'Share',
-      onclick: async () => {
-        try {
-          await navigator.share({ title: roster.name, text: text() });
-        } catch (e) {
-          if (e?.name !== 'AbortError') copyText(text());
-        }
-      },
-    }));
+async function shareText(title, text) {
+  if (!navigator.share) return copyText(text);
+  try {
+    await navigator.share({ title, text });
+  } catch (e) {
+    if (e?.name !== 'AbortError') copyText(text);
   }
-  return buttons;
+}
+
+/**
+ * The export menu: message and per-person text (copy or share), print, and
+ * calendar / spreadsheet files. It stays open so several can be done in a row.
+ */
+function openExport(roster, people, shifts) {
+  const base = fileBase(roster);
+
+  /** One row of the menu: what it is, a line on when to use it, its buttons. */
+  const row = (title, hint, actions) => el('div', { className: 'export-row' }, [
+    el('div', { className: 'item-main' }, [
+      el('div', { className: 'item-title', textContent: title }),
+      el('div', { className: 'item-sub', textContent: hint }),
+    ]),
+    el('div', { className: 'row-tight' }, actions),
+  ]);
+  /** Copy and (where there is a share sheet) Share buttons for some text. */
+  const textButtons = (make) => [
+    el('button', { className: 'btn btn-sm', textContent: 'Copy', onclick: () => copyText(make()) }),
+    navigator.share
+      ? el('button', { className: 'btn btn-sm', textContent: 'Share', onclick: () => shareText(roster.name, make()) })
+      : null,
+  ];
+  /** A button that saves a generated file. */
+  const fileButton = (label, name, make, type) => el('button', {
+    className: 'btn btn-sm', textContent: label,
+    onclick: () => downloadText(name, make(), type),
+  });
+
+  return dialog((close) => [
+    el('h2', { textContent: 'Share or export' }),
+    el('div', { className: 'list' }, [
+      row('Message', 'For a group chat or email: each day and who is on.',
+        textButtons(() => formatMessage(roster, people, shifts))),
+      row("Each person's shifts", 'One line per person, to message people one by one.',
+        textButtons(() => formatPerPerson(roster, people, shifts))),
+      row('Print or PDF', 'A clean page for the noticeboard. Choose "Save as PDF" to email it.', [
+        el('button', {
+          className: 'btn btn-sm', textContent: 'Print',
+          onclick: () => { close(); printRoster(roster, people, shifts); },
+        }),
+      ]),
+      row('Calendar', "An .ics file people can add to their phone's calendar.", [
+        fileButton('Download', `${base}.ics`, () => toICS(roster, people, shifts), 'text/calendar'),
+      ]),
+      row('Spreadsheet', 'A .csv file for Excel or Google Sheets.', [
+        fileButton('Download', `${base}.csv`, () => toCSV(roster, people, shifts), 'text/csv'),
+      ]),
+    ]),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn btn-primary', textContent: 'Done', onclick: () => close() }),
+    ]),
+  ]);
+}
+
+/**
+ * Print the roster on its own: a plain table, one row per day and a column
+ * per shift, on a white page. The app itself is hidden while printing (see
+ * `body.printing` in app.css), and the sheet is removed again afterwards.
+ */
+export function printRoster(roster, people, shifts) {
+  const lines = rosterLines(roster, people, shifts);
+  const columns = lines[0]?.shifts.map(({ shift }) => shift) || [];
+
+  const head = el('tr', {}, [
+    el('th', { textContent: 'Date' }),
+    ...columns.map((shift) => el('th', {}, [
+      shift.name,
+      shiftTimes(shift) ? el('div', { className: 'print-times', textContent: shiftTimes(shift) }) : null,
+    ])),
+  ]);
+  const body = lines.map((day) => el('tr', {}, [
+    el('td', { className: 'print-date', textContent: formatDate(day.date) }),
+    ...day.shifts.map(({ names, short }) => el('td', {}, [
+      names.join(', ') || null,
+      short ? el('div', { className: 'print-gap', textContent: names.length ? `needs ${short} more` : 'unfilled' }) : null,
+    ])),
+  ]));
+
+  const sheet = el('section', { id: 'print-sheet' }, [
+    el('h1', { textContent: roster.name }),
+    el('table', {}, [el('thead', {}, head), el('tbody', {}, body)]),
+    el('p', { className: 'print-foot', textContent: 'Made with RosterWarden' }),
+  ]);
+
+  document.getElementById('print-sheet')?.remove();
+  document.body.append(sheet);
+  document.body.classList.add('printing');
+
+  /** Put the app back once the print dialog closes. */
+  const done = () => {
+    document.body.classList.remove('printing');
+    sheet.remove();
+  };
+  window.addEventListener('afterprint', done, { once: true });
+  // Let the closing dialog leave the screen before the print snapshot is taken.
+  setTimeout(() => window.print(), 50);
 }

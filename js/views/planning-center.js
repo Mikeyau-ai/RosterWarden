@@ -250,24 +250,49 @@ function positionsBlock(link, fail) {
 }
 
 /**
+ * Ask how to send: notify people (notifications prepared, ready for Send in
+ * Planning Center) or add them quietly. Resolves to true, false, or null if
+ * cancelled. Asked every time, because it depends on the roster - a draft
+ * roster to check with the team first is a quiet one.
+ */
+function askNotify(link) {
+  return dialog((close) => [
+    el('h2', { textContent: 'Send to Planning Center' }),
+    el('p', {
+      className: 'muted',
+      textContent: `Adds everyone to the ${link.teamName} team in the matching `
+        + `${link.serviceTypeName ? `${link.serviceTypeName} ` : ''}plans, as Unconfirmed.`,
+    }),
+    el('p', { className: 'muted', textContent: 'Should they be notified?' }),
+    el('ul', { className: 'install-steps' }, [
+      el('li', {}, [el('strong', { textContent: 'Notify: ' }),
+        'notifications are prepared, and you press Send in Planning Center to send them '
+        + '(Planning Center doesn’t let other apps send them).']),
+      el('li', {}, [el('strong', { textContent: 'Don’t notify: ' }),
+        'they go on the plans quietly; nobody hears anything.']),
+    ]),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(null) }),
+      el('button', { className: 'btn', textContent: 'Don’t notify', onclick: () => close(false) }),
+      el('button', { className: 'btn btn-primary', textContent: 'Notify', onclick: () => close(true) }),
+    ]),
+  ]);
+}
+
+/**
  * "Send to Planning Center" on a saved roster.
  *
- * Asks first (it writes into someone else's system), then reports exactly what
- * went in and what didn't, because a partial send is normal: a date with no
- * plan, a person not on the team, or a shift with no position.
+ * Asks whether to notify first (it writes into someone else's system), then
+ * reports exactly what went in and what didn't, because a partial send is
+ * normal: a date with no plan, a person not on the team, or a shift with no
+ * position.
  */
 export function sendButton(roster) {
   const btn = el('button', { className: 'btn', textContent: 'Send to Planning Center' });
   btn.addEventListener('click', async () => {
     const link = store.currentOrg().pco;
-    const ok = await confirmDialog(
-      'Send to Planning Center?',
-      `Adds everyone on this roster to the ${link.teamName} team in the matching ${link.serviceTypeName || ''} `
-        + 'plans, as Unconfirmed. Notifications are prepared but not sent: nobody hears '
-        + 'anything until you press Send in Planning Center.',
-      'Send'
-    );
-    if (!ok) return;
+    const notify = await askNotify(link);
+    if (notify === null) return;
 
     btn.disabled = true;
     const people = new Map(store.people().map((p) => [p.id, p]));
@@ -278,8 +303,8 @@ export function sendButton(roster) {
         serviceTypeId: link.serviceTypeId,
         personPcoId: (id) => people.get(id)?.pcoId || null,
         positionFor: (id) => shifts.get(id)?.pcoPosition || null,
-      }, (done, total) => { btn.textContent = `Sending ${done} of ${total}…`; });
-      showSendResult(result, people, shifts);
+      }, { notify }, (done, total) => { btn.textContent = `Sending ${done} of ${total}…`; });
+      showSendResult(result, people, shifts, notify);
     } catch (e) {
       toast(e instanceof pco.PCOError ? e.message : 'Sending to Planning Center failed.');
     } finally {
@@ -290,10 +315,15 @@ export function sendButton(roster) {
   return btn;
 }
 
-/** The after-send report: what went in, and each reason something didn't. */
-function showSendResult(result, people, shifts) {
+/**
+ * The after-send report: what went in, each reason something didn't, and -
+ * when notifying - a link to each plan, where Send is one tap away.
+ */
+function showSendResult(result, people, shifts, notify) {
   const lines = [];
-  lines.push(`${result.added} added to Planning Center.`);
+  lines.push(notify
+    ? `${result.added} added to Planning Center, with notifications ready to send.`
+    : `${result.added} added to Planning Center quietly. Nobody has been notified.`);
   if (result.already) lines.push(`${result.already} were already there, left as they were.`);
   if (result.noPlan.size) {
     lines.push(`No plan on ${[...result.noPlan].map((d) => formatDate(d, { withWeekday: false })).join(', ')}. `
@@ -306,9 +336,20 @@ function showSendResult(result, people, shifts) {
     lines.push(`No position picked for: ${[...result.unmapped].map((id) => shifts.get(id)?.name || '(removed)').join(', ')} `
       + '(Settings → Planning Center).');
   }
+
+  // Each plan that gained someone, as a link straight to it in Planning Center.
+  const planLinks = notify && result.plans.some((p) => p.url) ? [
+    el('p', { className: 'muted', textContent: 'Open each plan and press Send to notify people:' }),
+    el('div', { className: 'row' }, result.plans.filter((p) => p.url).map((p) => el('a', {
+      className: 'btn btn-sm', href: p.url, target: '_blank', rel: 'noopener',
+      textContent: `Open ${formatDate(p.date, { withWeekday: false }).replace(/ \d{4}$/, '')}`,
+    }))),
+  ] : [];
+
   return dialog((close) => [
     el('h2', { textContent: 'Sent to Planning Center' }),
     el('ul', { className: 'install-steps' }, lines.map((l) => el('li', { textContent: l }))),
+    ...planLinks,
     el('div', { className: 'modal-actions' }, [
       el('button', { className: 'btn btn-primary', textContent: 'OK', onclick: () => close() }),
     ]),

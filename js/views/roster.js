@@ -14,7 +14,7 @@ import {
   el, fill, toast, confirmDialog, calendarPicker, emptyState,
 } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, copyShareButtons,
+  editableDayCards, dayCards, tally, notesBox, exportButton,
 } from './roster-parts.js';
 import { show } from '../app.js';
 
@@ -455,7 +455,7 @@ function buildResultView(container, rerender) {
       className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
       onclick: () => { editing = !editing; rerender(); },
     }),
-    ...copyShareButtons(roster, people, shifts),
+    exportButton(roster, people, shifts),
   ];
 
   // A shortfall must be impossible to miss, so it goes above the schedule.
