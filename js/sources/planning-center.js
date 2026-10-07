@@ -231,7 +231,14 @@ async function call(path, { method = 'GET', body } = {}, { refreshed = false, wa
     return call(path, { method, body }, { refreshed, waits: waits + 1 });
   }
   if (res.status === 403) {
-    throw new PCOError('Your Planning Center login is not allowed to do that. Ask an admin for Services access.');
+    // "Not found in the application" means this login has no Services at all:
+    // usually the wrong organisation (or a login that isn't on any team).
+    const data = await res.json().catch(() => ({}));
+    const notInServices = /not found in the application/i.test(data.errors?.[0]?.meta?.description || '');
+    throw new PCOError(notInServices
+      ? 'That Planning Center login isn\'t set up in Services. If you have more than one login or '
+        + 'organisation, disconnect and connect again with your church\'s.'
+      : 'Your Planning Center login is not allowed to do that. Ask an admin for Services access.');
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
