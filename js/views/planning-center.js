@@ -81,7 +81,7 @@ export function renderCard(redraw) {
         'Disconnect'
       );
       if (!ok) return;
-      pco.disconnect();
+      await pco.disconnect();
       teamsCache = null;
       redraw();
     },

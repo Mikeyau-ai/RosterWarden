@@ -18,14 +18,21 @@
  * unguessable, and it is NOT the encryption key - see js/sync.js.
  *
  * Planning Center sign-in endpoints (see js/sources/planning-center.js):
- *   POST /pco/token    <- { code, redirect_uri }   -> Planning Center's token response
+ *   POST /pco/token    <- { code, redirect_uri, code_verifier } -> Planning Center's token response
  *   POST /pco/refresh  <- { refresh_token }        -> Planning Center's token response
+ *   POST /pco/revoke   <- { token }                -> { ok: true }  (on disconnect)
  *
  * These exist only because swapping a sign-in code for a token needs the app's
  * client secret, which cannot ship inside a web page. The worker adds the
  * secret, passes the request on, and hands the tokens straight back - it
  * stores nothing, and roster data never comes through here.
  */
+
+/**
+ * Sent on every request to Planning Center, which may refuse (403) requests
+ * without an identifying User-Agent - and a Worker's fetch sends none.
+ */
+const USER_AGENT = 'RosterWarden (https://sixthdaystudios.com)';
 
 /** Biggest blob accepted, in bytes. A large roster is a few tens of KB. */
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -66,6 +73,9 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/pco/refresh') {
       return pcoToken(request, env, origin, 'refresh_token');
+    }
+    if (request.method === 'POST' && url.pathname === '/pco/revoke') {
+      return pcoRevoke(request, env, origin);
     }
 
     const match = url.pathname.match(/^\/db\/([^/]+)$/);
@@ -150,6 +160,8 @@ async function pcoToken(request, env, origin, grantType) {
     }
     form.code = body.code;
     form.redirect_uri = body.redirect_uri;
+    // PKCE: the verifier proves this is the same app that started the sign-in.
+    if (typeof body.code_verifier === 'string') form.code_verifier = body.code_verifier;
   } else {
     if (typeof body?.refresh_token !== 'string') {
       return json({ error: 'refresh_token is required' }, 400, origin);
@@ -161,7 +173,7 @@ async function pcoToken(request, env, origin, grantType) {
   try {
     res = await fetch('https://api.planningcenteronline.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
       body: new URLSearchParams(form),
     });
   } catch {
@@ -178,4 +190,34 @@ async function pcoToken(request, env, origin, grantType) {
     refresh_token: data.refresh_token,
     expires_in: data.expires_in,
   }, 200, origin);
+}
+
+/**
+ * Revoke a refresh token when a device disconnects, so a copy left in that
+ * browser's storage stops working. Revoking the refresh token also kills its
+ * access token. Planning Center answers 200 even for a token already dead, so
+ * failures here are not worth reporting back.
+ */
+async function pcoRevoke(request, env, origin) {
+  if (!env.PCO_CLIENT_ID || !env.PCO_CLIENT_SECRET) {
+    return json({ error: 'Planning Center is not set up on this server yet.' }, 501, origin);
+  }
+  const body = await request.json().catch(() => null);
+  if (typeof body?.token !== 'string') return json({ error: 'token is required' }, 400, origin);
+
+  try {
+    await fetch('https://api.planningcenteronline.com/oauth/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT },
+      body: new URLSearchParams({
+        token: body.token,
+        token_type_hint: 'refresh_token',
+        client_id: env.PCO_CLIENT_ID,
+        client_secret: env.PCO_CLIENT_SECRET,
+      }),
+    });
+  } catch {
+    return json({ error: 'Could not reach Planning Center.' }, 502, origin);
+  }
+  return json({ ok: true }, 200, origin);
 }

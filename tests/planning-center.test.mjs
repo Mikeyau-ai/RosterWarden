@@ -52,6 +52,52 @@ beforeEach(() => {
   localStorage.items.clear();
 });
 
+test('sign-in sends a PKCE challenge, then swaps the code with its verifier', async () => {
+  // A minimal browser for the redirect out and back.
+  globalThis.sessionStorage = new MemoryStorage();
+  let sentTo = null;
+  globalThis.location = {
+    origin: 'https://example.test', pathname: '/RosterWarden/', search: '', hash: '#settings',
+    assign: (url) => { sentTo = new URL(url); },
+  };
+  globalThis.history = { replaceState: () => {} };
+
+  await pco.startSignIn();
+  const q = sentTo.searchParams;
+  assert.equal(q.get('code_challenge_method'), 'S256');
+  assert.equal(q.get('redirect_uri'), 'https://example.test/RosterWarden/');
+  assert.equal(q.get('scope'), 'services');
+
+  // The challenge must be the base64url SHA-256 of the verifier kept for later.
+  const verifier = sessionStorage.getItem('rosterwarden.pco.verifier');
+  assert.ok(verifier.length >= 43);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  assert.equal(q.get('code_challenge'), Buffer.from(digest).toString('base64url'));
+
+  // Back from Planning Center with a code and the same state.
+  location.search = `?code=abc&state=${q.get('state')}`;
+  routes = () => ({ access_token: 'a', refresh_token: 'r', expires_in: 7200 });
+  assert.equal(await pco.finishSignIn(), 'connected');
+  assert.match(calls[0].url, /\/pco\/token$/);
+  assert.deepEqual(calls[0].body, {
+    code: 'abc', redirect_uri: 'https://example.test/RosterWarden/', code_verifier: verifier,
+  });
+  assert.equal(pco.isConnected(), true);
+
+  // A second return trip with no matching state is refused.
+  location.search = '?code=xyz&state=forged';
+  await assert.rejects(pco.finishSignIn(), pco.PCOError);
+});
+
+test('disconnect forgets the tokens and asks the worker to revoke them', async () => {
+  signIn();
+  routes = () => ({ ok: true });
+  await pco.disconnect();
+  assert.equal(pco.isConnected(), false);
+  assert.match(calls[0].url, /\/pco\/revoke$/);
+  assert.deepEqual(calls[0].body, { token: 'ref' });
+});
+
 test('blockoutRange keeps an all-day blockout on its own day in its own zone', () => {
   // Sat 11 Oct 2026, midnight to midnight in Sydney (UTC+11 in October).
   const r = pco.blockoutRange({

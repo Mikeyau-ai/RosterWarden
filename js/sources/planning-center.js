@@ -21,6 +21,7 @@ import { PCO_CLIENT_ID, SYNC_URL } from '../config.js';
 const API = 'https://api.planningcenteronline.com';
 const TOKEN_KEY = 'rosterwarden.pco';
 const STATE_KEY = 'rosterwarden.pco.state';
+const VERIFIER_KEY = 'rosterwarden.pco.verifier';
 
 /** Raised for anything the user should be told about, with a readable message. */
 export class PCOError extends Error {}
@@ -50,9 +51,26 @@ export function isConnected() {
   return Boolean(readTokens()?.refresh_token);
 }
 
-/** Sign this device out of Planning Center. Rosters and people are untouched. */
-export function disconnect() {
+/**
+ * Sign this device out of Planning Center. Rosters and people are untouched.
+ *
+ * The refresh token is revoked too (which also kills its access token), so a
+ * copy left in this browser's storage is useless afterwards. That part is
+ * best-effort: offline, the device still signs out.
+ */
+export async function disconnect() {
+  const token = readTokens()?.refresh_token;
   writeTokens(null);
+  if (!token) return;
+  try {
+    await fetch(`${SYNC_URL}/pco/revoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    // Nothing to tell the user: they are signed out on this device either way.
+  }
 }
 
 /** The address Planning Center sends people back to: this page, minus any query. */
@@ -60,21 +78,34 @@ function redirectUri() {
   return location.origin + location.pathname;
 }
 
+/** Bytes as unpadded base64url, the encoding PKCE uses. */
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 /**
  * Send the browser to Planning Center's sign-in page.
  *
- * A random `state` is stored first and checked on the way back, so a sign-in
- * code that this device did not ask for is refused.
+ * Two random values are kept for the return trip: `state`, so a sign-in this
+ * device did not start is refused, and a PKCE verifier (Planning Center
+ * recommends PKCE even with the secret kept on a server), so a stolen code is
+ * useless to anyone who lacks it.
  */
-export function startSignIn() {
+export async function startSignIn() {
   const state = crypto.randomUUID();
+  const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));   // 43 chars
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
   sessionStorage.setItem(STATE_KEY, state);
+  sessionStorage.setItem(VERIFIER_KEY, verifier);
+
   const params = new URLSearchParams({
     client_id: PCO_CLIENT_ID,
     redirect_uri: redirectUri(),
     response_type: 'code',
     scope: 'services',
     state,
+    code_challenge: base64url(new Uint8Array(digest)),
+    code_challenge_method: 'S256',
   });
   location.assign(`${API}/oauth/authorize?${params}`);
 }
@@ -93,14 +124,18 @@ export async function finishSignIn() {
   if (!code && !error) return null;
 
   const expected = sessionStorage.getItem(STATE_KEY);
+  const verifier = sessionStorage.getItem(VERIFIER_KEY);
   sessionStorage.removeItem(STATE_KEY);
+  sessionStorage.removeItem(VERIFIER_KEY);
   history.replaceState(null, '', redirectUri() + location.hash);
 
   if (error) return 'cancelled';
-  if (!expected || params.get('state') !== expected) {
+  if (!expected || !verifier || params.get('state') !== expected) {
     throw new PCOError('That Planning Center sign-in did not start here. Try connecting again.');
   }
-  writeTokens(stamp(await worker('/pco/token', { code, redirect_uri: redirectUri() })));
+  writeTokens(stamp(await worker('/pco/token', {
+    code, redirect_uri: redirectUri(), code_verifier: verifier,
+  })));
   return 'connected';
 }
 
@@ -158,14 +193,20 @@ async function accessToken(force = false) {
 /** Wait `ms` milliseconds. */
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+/** Most times a rate-limited request is retried before giving up. */
+const MAX_RATE_RETRIES = 5;
+
 /**
  * One request to the Planning Center API, as parsed JSON.
  *
- * Retries once with a fresh token on 401, and waits out a 429 (the API allows
- * 100 requests per 20 seconds, which a big team's blockouts can reach).
+ * Retries once with a fresh token on 401. On 429 it waits as long as
+ * `Retry-After` says and tries again (safe for a POST too: a rate-limited
+ * request was never carried out). Following Planning Center's guidance, it
+ * reads the rate headers on every reply and pauses when close to the limit,
+ * rather than assuming a fixed "100 per 20 seconds".
  */
-async function call(path, { method = 'GET', body } = {}, attempt = 0) {
-  const token = await accessToken(attempt > 0 && attempt < 2);
+async function call(path, { method = 'GET', body } = {}, { refreshed = false, waits = 0 } = {}) {
+  const token = await accessToken(refreshed);
   let res;
   try {
     res = await fetch(path.startsWith('http') ? path : API + path, {
@@ -180,10 +221,10 @@ async function call(path, { method = 'GET', body } = {}, attempt = 0) {
     throw new PCOError('Could not reach Planning Center. Check your connection.');
   }
 
-  if (res.status === 401 && attempt === 0) return call(path, { method, body }, 1);
-  if (res.status === 429 && attempt < 4) {
-    await sleep((Number(res.headers.get('Retry-After')) || 5) * 1000);
-    return call(path, { method, body }, attempt + 2);
+  if (res.status === 401 && !refreshed) return call(path, { method, body }, { refreshed: true, waits });
+  if (res.status === 429 && waits < MAX_RATE_RETRIES) {
+    await sleep((Number(res.headers.get('Retry-After')) || 1) * 1000);
+    return call(path, { method, body }, { refreshed, waits: waits + 1 });
   }
   if (res.status === 403) {
     throw new PCOError('Your Planning Center login is not allowed to do that. Ask an admin for Services access.');
@@ -193,6 +234,12 @@ async function call(path, { method = 'GET', body } = {}, attempt = 0) {
     const detail = data.errors?.[0]?.detail || data.errors?.[0]?.title;
     throw new PCOError(`Planning Center said: ${detail || `error ${res.status}`}`);
   }
+
+  // Nearly out of requests for this window: ease off for a second.
+  const limit = Number(res.headers.get('X-PCO-API-Request-Rate-Limit'));
+  const count = Number(res.headers.get('X-PCO-API-Request-Rate-Count'));
+  if (limit && count >= limit * 0.8) await sleep(1000);
+
   return res.status === 204 ? null : res.json();
 }
 

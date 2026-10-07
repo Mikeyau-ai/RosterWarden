@@ -89,16 +89,23 @@ person's own Planning Center login (OAuth). Then:
   shifts with no position are listed afterwards.
 
 Each device signs in for itself; the token stays on that device and is not in
-backups or sync. The app talks to Planning Center directly, except for the
+backups or sync. Sign-in uses PKCE and a `state` check, and **Disconnect**
+revokes the token with Planning Center rather than just forgetting it. API calls
+read Planning Center's rate-limit headers and wait out a 429. The app talks to Planning Center directly, except for the
 sign-in swap, which needs the app's client secret and so goes through the sync
 worker (see `worker/README.md`). With `PCO_CLIENT_ID` empty in `js/config.js`
 the card just says Planning Center isn't set up.
 
 ### Setting it up (once)
 
-1. Register an app at <https://api.planningcenteronline.com/oauth/applications>
-   with callback URLs `https://mikeyau-ai.github.io/RosterWarden/` and
-   `http://localhost:8123/`.
+1. Make a free Planning Center organisation for Sixth Day Studios (not the
+   church's), as its Organization Administrator: Planning Center's own advice,
+   since only org admins can create OAuth apps and every admin of that org can
+   manage it. Create **one** OAuth application there at
+   <https://api.planningcenteronline.com/oauth/applications>, with callback URLs
+   `https://mikeyau-ai.github.io/RosterWarden/` and `http://localhost:8123/`.
+   Every church then signs in through that one app; none of them register
+   anything. The free org can also hold sample data to test against.
 2. Put the client id in `js/config.js` (`PCO_CLIENT_ID`) and
    `worker/wrangler.toml` (`PCO_CLIENT_ID`).
 3. From `worker/`: `npx wrangler secret put PCO_CLIENT_SECRET`, then

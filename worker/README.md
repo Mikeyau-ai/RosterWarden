@@ -10,15 +10,18 @@ key never leaves it.
 That is the point. Hosting other people's staff names and availability would
 make you responsible for them. Hosting ciphertext you cannot decrypt does not.
 
-It also does one small job for Planning Center sign-in: `POST /pco/token` and
-`POST /pco/refresh` add the app's client secret to a token request and pass
-Planning Center's answer straight back. Nothing is stored, and roster data never
+It also does one small job for Planning Center sign-in: `POST /pco/token`,
+`POST /pco/refresh` and `POST /pco/revoke` add the app's client secret (and an
+identifying User-Agent, which Planning Center requires) to a token request and
+pass Planning Center's answer straight back. Nothing is stored, and roster data never
 comes through here (the app calls Planning Center's API directly).
 
 ## Planning Center (optional)
 
-1. Register an app at <https://api.planningcenteronline.com/oauth/applications>
-   (callback URLs: the site's address, and `http://localhost:8123/` for testing).
+1. In a free Planning Center organisation of your own (you must be its
+   Organization Administrator), create one OAuth app at
+   <https://api.planningcenteronline.com/oauth/applications> (callback URLs: the
+   site's address, and `http://localhost:8123/` for testing).
 2. Put its client id in `wrangler.toml` under `[vars]` as `PCO_CLIENT_ID`, and in
    the app's `js/config.js`.
 3. Store the secret on Cloudflare, never in a file:
