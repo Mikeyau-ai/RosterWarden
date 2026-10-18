@@ -282,6 +282,9 @@ function renderEditor(id, container) {
   const nameCard = renderNameCard(person);
   const availCard = renderAvailabilityCard(person, container);
   const rolesCard = renderRolesCard(person);
+  const patternCard = renderPatternCard(person);
+  const togetherCard = renderTogetherCard(person, container);
+  const contactCard = renderContactCard(person);
   const wantedCard = renderWantedDatesCard(person, container);
   const maxCard = renderMaxShiftsCard(person);
   const awayCard = renderAwayCard(person, container);
@@ -312,7 +315,8 @@ function renderEditor(id, container) {
   });
 
   return [
-    header, nameCard.node, availCard, rolesCard, wantedCard, maxCard.node, awayCard, clashCard,
+    header, nameCard.node, availCard, patternCard, rolesCard, wantedCard, maxCard.node, awayCard,
+    clashCard, togetherCard, contactCard,
     saveBtn, deleteBtn,
   ];
 }
@@ -384,6 +388,87 @@ function renderRolesCard(person) {
     el('label', { className: 'label', textContent: 'Can do' }),
     ...ticks,
     el('div', { className: 'faint', textContent: 'On a shift made of roles, they are only put on roles ticked here.' }),
+  ]);
+}
+
+/**
+ * Card: how often they serve and which weeks of the month. Both are optional:
+ * "no preference" and "any week" are the defaults.
+ */
+function renderPatternCard(person) {
+  const weeks = new Set(person.weeksOfMonth || []);
+  const chips = [1, 2, 3, 4, 5].map((n) => {
+    const chip = el('button', {
+      type: 'button', className: 'day-chip', textContent: ['1st', '2nd', '3rd', '4th', '5th'][n - 1],
+      'aria-pressed': String(weeks.has(n)),
+      onclick: () => {
+        if (weeks.has(n)) weeks.delete(n); else weeks.add(n);
+        chip.setAttribute('aria-pressed', String(weeks.has(n)));
+        store.updatePerson(person.id, { weeksOfMonth: [...weeks].sort() });
+      },
+    });
+    return chip;
+  });
+  const gap = el('select', {
+    onchange: () => store.updatePerson(person.id, { minGapWeeks: gap.value ? Number(gap.value) : null }),
+  }, [
+    ['', 'As often as needed'], ['2', 'Every 2nd week at most'], ['3', 'Every 3rd week at most'],
+    ['4', 'About once a month'],
+  ].map(([value, text]) => el('option', {
+    value, textContent: text, selected: String(person.minGapWeeks ?? '') === value,
+  })));
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'How often' }),
+    gap,
+    el('label', { className: 'label', style: 'margin-top:.6rem', textContent: 'Only these weeks of the month' }),
+    el('div', { className: 'days' }, chips),
+    el('div', { className: 'faint', textContent: 'Leave the weeks blank for any week. Someone who serves less often is still used if nobody else is free.' }),
+  ]);
+}
+
+/** Card: people this person serves together with (a couple, a parent and child). */
+function renderTogetherCard(person, container) {
+  const others = store.people().filter((p) => p.id !== person.id);
+  const mates = others.filter((p) => (person.withIds || []).includes(p.id));
+  const rows = mates.map((m) => el('div', { className: 'spread' }, [
+    el('div', { textContent: m.name }),
+    el('button', {
+      className: 'btn btn-sm', textContent: 'Remove',
+      onclick: () => { store.setTogether(person.id, m.id, false); render(container); },
+    }),
+  ]));
+  const free = others.filter((p) => !mates.includes(p));
+  let addRow = null;
+  if (free.length) {
+    const select = el('select', {}, free.map((p) => el('option', { value: String(p.id), textContent: p.name })));
+    addRow = el('div', { className: 'row-tight' }, [select, el('button', {
+      className: 'btn btn-sm', textContent: 'Add',
+      onclick: () => { store.setTogether(person.id, Number(select.value), true); render(container); },
+    })]);
+  }
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'Serves with' }),
+    rows.length ? el('div', { className: 'list' }, rows) : el('div', { className: 'muted', textContent: 'No one in particular.' }),
+    addRow,
+    el('div', { className: 'faint', textContent: 'When one is rostered, the other goes on the same shift if they are free.' }),
+  ]);
+}
+
+/** Card: optional phone, email and pay rate, used to message them and to estimate cost. */
+function renderContactCard(person) {
+  /** A text field that saves on change. */
+  const field = (label, key, type, value) => {
+    const input = el('input', { type, value: value ?? '', inputMode: type === 'tel' ? 'tel' : undefined });
+    input.addEventListener('change', () => {
+      const raw = input.value.trim();
+      store.updatePerson(person.id, { [key]: key === 'hourlyRate' ? (raw === '' ? null : Math.max(0, Number(raw) || 0)) : raw });
+    });
+    return el('div', {}, [el('label', { className: 'label', textContent: label }), input]);
+  };
+  return el('div', { className: 'card' }, [
+    field('Mobile (optional)', 'phone', 'tel', person.phone),
+    field('Email (optional)', 'email', 'email', person.email),
+    field('Pay per hour (optional)', 'hourlyRate', 'number', person.hourlyRate),
   ]);
 }
 

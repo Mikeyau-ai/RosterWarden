@@ -452,6 +452,10 @@ export const store = {
       availableWeekdays: [...availableWeekdays],
       blackouts: [], requests: [], maxShifts: null, notes: '',
       roleIds: [],
+      withIds: [],          // people they serve together with
+      minGapWeeks: null,    // serve at most once every this many weeks (null: no preference)
+      weeksOfMonth: [],     // only these weeks of the month, 1-5 (empty: any)
+      phone: '', email: '', hourlyRate: null,
     };
     this.data.people.push(person);
     this.save();
@@ -469,6 +473,27 @@ export const store = {
   deletePerson(id) {
     this.data.people = this.data.people.filter((p) => p.id !== id);
     this.data.clashes = this.data.clashes.filter((c) => c.a !== id && c.b !== id);
+    for (const p of this.data.people) {
+      if (p.withIds?.includes(id)) p.withIds = p.withIds.filter((x) => x !== id);
+    }
+    this.save();
+  },
+
+  /**
+   * Make two people serve together (or stop). Kept on both people, so either
+   * one's page shows it and the scheduler finds it from whoever it picks first.
+   */
+  setTogether(a, b, on) {
+    const pa = this.data.people.find((p) => p.id === a);
+    const pb = this.data.people.find((p) => p.id === b);
+    if (!pa || !pb || a === b) return;
+    const set = (p, other) => {
+      const ids = new Set(p.withIds || []);
+      if (on) ids.add(other); else ids.delete(other);
+      p.withIds = [...ids];
+    };
+    set(pa, b);
+    set(pb, a);
     this.save();
   },
 
