@@ -6,7 +6,8 @@
  * shift that matters most (e.g. the one hardest to cover) first.
  */
 import { store } from '../store.js';
-import { el, fill, confirmDialog, TIME_STEP_SECONDS } from '../ui.js';
+import { el, fill, confirmDialog, promptText, toast, TIME_STEP_SECONDS } from '../ui.js';
+import * as pco from '../sources/planning-center.js';
 
 /** Times a new shift should start with: the organisation's opening hours if set. */
 function defaultTimes() {
@@ -56,8 +57,115 @@ export function render(container) {
       render(container);
     },
   }));
+  if (store.roles().length) nodes.push(renderRolesList(container));
 
   fill(container, nodes);
+}
+
+/** Card listing every role, to say who can do it and to delete it. */
+function renderRolesList(container) {
+  const rows = store.roles().map((role) => el('div', { className: 'spread' }, [
+    el('div', { textContent: role.name }),
+    el('label', { className: 'row-tight' }, [
+      el('input', {
+        type: 'checkbox', checked: role.anyone,
+        onchange: (e) => store.updateRole(role.id, { anyone: e.target.checked }),
+      }),
+      el('span', { className: 'faint', textContent: 'anyone can do it' }),
+    ]),
+    el('button', {
+      className: 'btn btn-danger btn-sm', textContent: 'Delete',
+      onclick: async () => {
+        const ok = await confirmDialog('Delete role', `Remove "${role.name}" from every shift and person?`);
+        if (!ok) return;
+        store.deleteRole(role.id);
+        render(container);
+      },
+    }),
+  ]));
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'Roles' }),
+    ...rows,
+    el('div', { className: 'faint', textContent: 'Tick "anyone can do it" for jobs that need no skill, so people need not be ticked one by one.' }),
+  ]);
+}
+
+/**
+ * The roles part of a shift card: each role with how many are needed, and a
+ * picker to add another (or make a new one). While a shift has roles its
+ * "Staff needed" is their total, so that field is shown but not editable.
+ */
+function renderShiftRoles(shift, container) {
+  const roleName = new Map(store.roles().map((r) => [r.id, r.name]));
+  const rows = (shift.roles || []).map((r) => {
+    const count = el('input', {
+      type: 'number', min: '0', step: '1', value: String(r.count), style: 'width:4.5rem',
+      onchange: () => { store.setShiftRole(shift.id, r.roleId, count.value); render(container); },
+    });
+    return el('div', { className: 'spread' }, [
+      el('div', { textContent: roleName.get(r.roleId) || '(removed role)' }),
+      count,
+    ]);
+  });
+
+  const onShift = new Set((shift.roles || []).map((r) => r.roleId));
+  const add = el('select', {}, [
+    el('option', { value: '', textContent: '+ Add a role' }),
+    ...store.roles().filter((r) => !onShift.has(r.id))
+      .map((r) => el('option', { value: String(r.id), textContent: r.name })),
+    el('option', { value: 'new', textContent: 'New role…' }),
+  ]);
+  add.addEventListener('change', async () => {
+    let roleId = Number(add.value);
+    if (add.value === 'new') {
+      const name = await promptText('New role', 'Name, e.g. Drums or Making coffee');
+      roleId = store.addRole(name)?.id;
+    }
+    if (roleId) store.setShiftRole(shift.id, roleId, 1);
+    render(container);
+  });
+
+  // With a Planning Center team linked, its positions can become this shift's roles.
+  const teamId = store.currentOrg()?.pco?.teamId;
+  const fromPco = teamId ? el('button', {
+    className: 'btn btn-sm', textContent: 'Add positions from Planning Center',
+    onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        const [names, assignments] = await Promise.all([pco.teamPositions(teamId), pco.teamAssignments(teamId)]);
+        let added = 0;
+        const roleOf = new Map();
+        for (const name of names) {
+          const role = store.addRole(name);
+          roleOf.set(name, role);
+          if (!role.pcoPosition) store.updateRole(role.id, { pcoPosition: name });   // sent back as the same position
+          if (!(shift.roles || []).some((r) => r.roleId === role.id) && !onShift.has(role.id)) {
+            store.setShiftRole(shift.id, role.id, 1);
+            onShift.add(role.id);
+            added++;
+          }
+        }
+        // Tick people for the positions Planning Center has them down for.
+        const byPco = new Map(store.people().map((p) => [p.pcoId, p]));
+        const tickedIds = new Set();
+        for (const { personId, position } of assignments) {
+          const person = byPco.get(personId);
+          const role = roleOf.get(position);
+          if (!person || !role || (person.roleIds || []).includes(role.id)) continue;
+          store.updatePerson(person.id, { roleIds: [...(person.roleIds || []), role.id] });
+          person.roleIds = [...(person.roleIds || []), role.id];
+          tickedIds.add(person.id);
+        }
+        const ticked = tickedIds.size;
+        const parts = [added && `added ${added} role${added === 1 ? '' : 's'}`, ticked && `ticked ${ticked} ${ticked === 1 ? 'person' : 'people'}`].filter(Boolean);
+        toast(parts.length ? parts.join(', ').replace(/^./, (ch) => ch.toUpperCase()) : 'Nothing new to add');
+      } catch (err) {
+        toast(err instanceof pco.PCOError ? err.message : 'Could not reach Planning Center.');
+      }
+      render(container);
+    },
+  }) : null;
+  return el('div', {}, [el('label', { className: 'label', textContent: 'Roles' }), ...rows, add, fromPco]);
 }
 
 /** Build one editable card for a shift. */
@@ -84,6 +192,7 @@ function renderShiftCard(shift, index, total, container) {
 
   const headcountInput = el('input', {
     type: 'number', min: '0', step: '1', value: String(shift.headcount),
+    disabled: Boolean(shift.roles?.length),   // the total of its roles
   });
   const headcountErr = el('div', { className: 'err' });
   headcountInput.addEventListener('blur', () => {
@@ -126,6 +235,7 @@ function renderShiftCard(shift, index, total, container) {
       headcountInput,
       headcountErr,
     ]),
+    renderShiftRoles(shift, container),
     el('div', { className: 'row' }, [upBtn, downBtn, deleteBtn]),
   ]);
 }

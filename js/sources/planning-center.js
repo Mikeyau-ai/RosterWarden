@@ -325,6 +325,25 @@ export async function teamPositions(teamId) {
 }
 
 /**
+ * Who is set up for which position on the team: `[{ personId, position }]`,
+ * one per person per position, with Planning Center's own person id.
+ */
+export async function teamAssignments(teamId) {
+  const { data, included } = await all(
+    `/services/v2/teams/${teamId}/person_team_position_assignments?include=team_position`
+  );
+  const positionName = new Map(
+    included.filter((i) => i.type === 'TeamPosition').map((i) => [i.id, i.attributes.name])
+  );
+  return data
+    .map((a) => ({
+      personId: a.relationships?.person?.data?.id,
+      position: positionName.get(a.relationships?.team_position?.data?.id),
+    }))
+    .filter((a) => a.personId && a.position);
+}
+
+/**
  * "YYYY-MM-DD" for a Planning Center timestamp in a given time zone.
  *
  * Blockouts carry their own `time_zone`; converting in it (rather than the
@@ -429,7 +448,7 @@ export async function plansBetween(serviceTypeId, first, last) {
  * the same roster twice does not double anyone up. Returns a summary of what
  * happened, including what could not be sent and why.
  *
- * `lookup` is `{ teamId, serviceTypeId, personPcoId(personId), positionFor(shiftId) }`.
+ * `lookup` is `{ teamId, serviceTypeId, personPcoId(personId), positionFor(shiftId, roleId) }`.
  * The result's `plans` lists each plan that gained someone, with its date and
  * its address in Planning Center, so the user can go straight there to Send.
  */
@@ -440,7 +459,7 @@ export async function sendRoster(assignments, lookup, { notify = true } = {}, on
   const sendable = [];
   for (const a of assignments) {
     const pcoId = lookup.personPcoId(a.personId);
-    const position = lookup.positionFor(a.shiftId);
+    const position = lookup.positionFor(a.shiftId, a.roleId ?? null);
     if (!pcoId) result.unlinked.add(a.personId);
     else if (!position) result.unmapped.add(a.shiftId);
     else sendable.push({ ...a, pcoId, position });

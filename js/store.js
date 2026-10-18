@@ -22,7 +22,7 @@ const KEY = 'rosterwarden.v1';
  * server to run a migration on, so it has to happen the moment the app opens,
  * and it has to be safe to run on data written by any older version.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Upgrade steps, keyed by the version they upgrade *to*.
@@ -39,6 +39,21 @@ const MIGRATIONS = {
       if (!Array.isArray(org.openDays)) org.openDays = [0, 1, 2, 3, 4, 5, 6];
       if (typeof org.openTime !== 'string') org.openTime = '';
       if (typeof org.closeTime !== 'string') org.closeTime = '';
+    }
+  },
+
+  // v3: roles inside shifts. Roles are defined once per organisation
+  // (`data.roles`), a shift lists the roles it needs and how many of each
+  // (`shift.roles`), and a person lists the roles they can do (`person.roleIds`).
+  // Nothing changes for an existing shift: with no roles it is still just
+  // "this many people".
+  3(data) {
+    if (!Array.isArray(data.roles)) data.roles = [];
+    for (const shift of data.shifts || []) {
+      if (!Array.isArray(shift.roles)) shift.roles = [];
+    }
+    for (const person of data.people || []) {
+      if (!Array.isArray(person.roleIds)) person.roleIds = [];
     }
   },
 };
@@ -67,6 +82,7 @@ function emptyData() {
     orgs: [],
     currentOrgId: null,
     shifts: [],
+    roles: [],
     people: [],
     clashes: [],
     rosters: [],
@@ -121,7 +137,7 @@ export const store = {
     }
     // Keep ids climbing above anything already stored, so a reload cannot
     // reissue an id that is still in use.
-    const all = [...this.data.orgs, ...this.data.people, ...this.data.shifts, ...this.data.rosters];
+    const all = [...this.data.orgs, ...this.data.people, ...this.data.shifts, ...this.data.roles, ...this.data.rosters];
     for (const item of all) if (item?.id >= idSeed) idSeed = item.id + 1;
     return this.data;
   },
@@ -239,6 +255,7 @@ export const store = {
     this.data.orgs = this.data.orgs.filter((o) => o.id !== id);
     this.data.people = this.data.people.filter((p) => p.orgId !== id);
     this.data.shifts = this.data.shifts.filter((s) => s.orgId !== id);
+    this.data.roles = this.data.roles.filter((r) => r.orgId !== id);
     this.data.clashes = this.data.clashes.filter((c) => c.orgId !== id);
     this.data.rosters = this.data.rosters.filter((r) => r.orgId !== id);
     if (this.data.currentOrgId === id) {
@@ -261,6 +278,7 @@ export const store = {
     const shift = {
       id: newId(), orgId: this.data.currentOrgId,
       name, start, end, headcount,
+      roles: [],
       order: this.shifts().length,
     };
     this.data.shifts.push(shift);
@@ -292,6 +310,102 @@ export const store = {
     this.save();
   },
 
+  // ------------------------------------------------------------------ roles --
+  /**
+   * The current organisation's roles, in the order they were made.
+   *
+   * A role is a job inside a shift: "Drums", "Making coffee". It belongs to
+   * the organisation, not to one shift, so "Guitar" on the 9am and 11am
+   * services is one role, and one tick on a person's page says they can play it.
+   */
+  roles() {
+    const org = this.data.currentOrgId;
+    return this.data.roles
+      .filter((r) => r.orgId === org)
+      .sort((a, b) => a.order - b.order || a.id - b.id);
+  },
+
+  /**
+   * The role with this name (any capitals), made if it doesn't exist yet.
+   * Returns null for a blank name.
+   */
+  addRole(name) {
+    const clean = String(name ?? '').trim();
+    if (!clean) return null;
+    const existing = this.roles().find((r) => r.name.toLowerCase() === clean.toLowerCase());
+    if (existing) return existing;
+    const role = {
+      id: newId(), orgId: this.data.currentOrgId, name: clean,
+      // false: only people ticked for the role are put on it. true: anyone
+      // can do it (serving at a cafe), so nobody needs ticking one by one.
+      anyone: false,
+      // The Planning Center position this role is sent as, if mapped.
+      pcoPosition: null,
+      order: this.roles().length,
+    };
+    this.data.roles.push(role);
+    this.save();
+    return role;
+  },
+
+  /**
+   * Apply a patch to one role. A rename to a name another role already has is
+   * refused (returns false) - two roles with one name could not be told apart.
+   */
+  updateRole(id, patch) {
+    const role = this.data.roles.find((r) => r.id === id);
+    if (!role) return false;
+    if (typeof patch.name === 'string') {
+      const clean = patch.name.trim();
+      const clash = this.roles().some((r) => r.id !== id && r.name.toLowerCase() === clean.toLowerCase());
+      if (!clean || clash) return false;
+      patch = { ...patch, name: clean };
+    }
+    Object.assign(role, patch);
+    this.save();
+    return true;
+  },
+
+  /**
+   * Delete a role: it comes off every shift and every person. Assignments in
+   * saved rosters keep it, so an old roster still reads "Drums: Sam" - it just
+   * shows as a removed role.
+   */
+  deleteRole(id) {
+    this.data.roles = this.data.roles.filter((r) => r.id !== id);
+    this.roles().forEach((r, i) => { r.order = i; });   // close the gap
+    for (const shift of this.data.shifts) {
+      if (shift.roles?.some((r) => r.roleId === id)) {
+        shift.roles = shift.roles.filter((r) => r.roleId !== id);
+      }
+    }
+    for (const person of this.data.people) {
+      if (person.roleIds?.includes(id)) person.roleIds = person.roleIds.filter((r) => r !== id);
+    }
+    this.save();
+  },
+
+  /**
+   * Put `count` of a role on a shift (or change the number already there).
+   * Zero removes it. While a shift has roles its headcount is simply their
+   * total, so everything that only cares how many people it needs still works.
+   */
+  setShiftRole(shiftId, roleId, count) {
+    const shift = this.data.shifts.find((s) => s.id === shiftId);
+    if (!shift) return;
+    const n = Math.max(0, Math.floor(Number(count) || 0));
+    const rest = (shift.roles || []).filter((r) => r.roleId !== roleId);
+    const had = (shift.roles || []).findIndex((r) => r.roleId === roleId);
+    if (n > 0) {
+      // Keep a role where it was when its number changes; a new one goes last.
+      if (had >= 0) rest.splice(had, 0, { roleId, count: n });
+      else rest.push({ roleId, count: n });
+    }
+    shift.roles = rest;
+    if (rest.length) shift.headcount = rest.reduce((sum, r) => sum + r.count, 0);
+    this.save();
+  },
+
   // ----------------------------------------------------------------- people --
   /** The current organisation's people, alphabetically. */
   people() {
@@ -316,6 +430,7 @@ export const store = {
       name: name.trim(), active: true,
       availableWeekdays: [...availableWeekdays],
       blackouts: [], requests: [], maxShifts: null, notes: '',
+      roleIds: [],
     };
     this.data.people.push(person);
     this.save();
