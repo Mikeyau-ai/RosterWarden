@@ -236,14 +236,22 @@ function positionsBlock(link, fail) {
       fill(rows, el('div', { className: 'faint', textContent: 'Add shifts first.' }));
       return;
     }
-    fill(rows, shifts.map((shift) => {
+    /** A row: a label and a position picker that saves through `save`. */
+    const pickerRow = (label, current, save) => {
       const select = el('select', {}, [
         el('option', { value: '', textContent: 'Don\'t send' }),
-        ...positions.map((name) => el('option', { value: name, textContent: name, selected: shift.pcoPosition === name })),
+        ...positions.map((name) => el('option', { value: name, textContent: name, selected: current === name })),
       ]);
-      select.addEventListener('change', () => store.updateShift(shift.id, { pcoPosition: select.value || null }));
-      return el('div', { className: 'spread' }, [el('div', { textContent: shift.name }), select]);
-    }));
+      select.addEventListener('change', () => save(select.value || null));
+      return el('div', { className: 'spread' }, [el('div', { textContent: label }), select]);
+    };
+    fill(rows, [
+      ...shifts.map((shift) => pickerRow(shift.name, shift.pcoPosition,
+        (v) => store.updateShift(shift.id, { pcoPosition: v }))),
+      // A role with its own position overrides its shift's.
+      ...store.roles().map((role) => pickerRow(`Role: ${role.name}`, role.pcoPosition,
+        (v) => store.updateRole(role.id, { pcoPosition: v }))),
+    ]);
   }).catch(fail);
 
   return wrap;
@@ -297,12 +305,14 @@ export function sendButton(roster) {
     btn.disabled = true;
     const people = new Map(store.people().map((p) => [p.id, p]));
     const shifts = new Map(store.shifts().map((s) => [s.id, s]));
+    const roles = new Map(store.roles().map((r) => [r.id, r]));
     try {
       const result = await pco.sendRoster(roster.assignments, {
         teamId: link.teamId,
         serviceTypeId: link.serviceTypeId,
         personPcoId: (id) => people.get(id)?.pcoId || null,
-        positionFor: (id) => shifts.get(id)?.pcoPosition || null,
+        // A role's own position first, else the shift's.
+        positionFor: (id, roleId) => (roleId != null && roles.get(roleId)?.pcoPosition) || shifts.get(id)?.pcoPosition || null,
       }, { notify }, (done, total) => { btn.textContent = `Sending ${done} of ${total}…`; });
       showSendResult(result, people, shifts, notify);
     } catch (e) {

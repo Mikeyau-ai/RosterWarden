@@ -429,7 +429,7 @@ export async function plansBetween(serviceTypeId, first, last) {
  * the same roster twice does not double anyone up. Returns a summary of what
  * happened, including what could not be sent and why.
  *
- * `lookup` is `{ teamId, serviceTypeId, personPcoId(personId), positionFor(shiftId) }`.
+ * `lookup` is `{ teamId, serviceTypeId, personPcoId(personId), positionFor(shiftId, roleId) }`.
  * The result's `plans` lists each plan that gained someone, with its date and
  * its address in Planning Center, so the user can go straight there to Send.
  */
@@ -440,7 +440,7 @@ export async function sendRoster(assignments, lookup, { notify = true } = {}, on
   const sendable = [];
   for (const a of assignments) {
     const pcoId = lookup.personPcoId(a.personId);
-    const position = lookup.positionFor(a.shiftId);
+    const position = lookup.positionFor(a.shiftId, a.roleId ?? null);
     if (!pcoId) result.unlinked.add(a.personId);
     else if (!position) result.unmapped.add(a.shiftId);
     else sendable.push({ ...a, pcoId, position });

@@ -8,8 +8,9 @@
  * going back to change availability and rebuilding would reshuffle everything
  * else. This lets the roster be nudged in place instead.
  */
+import { store } from '../store.js';
 import { el, copyText, dialog, downloadText } from '../ui.js';
-import { formatDate, toDays, weekdayOf, counts } from '../scheduler.js';
+import { formatDate, toDays, weekdayOf, counts, canDoRole } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
 } from '../export.js';
@@ -36,6 +37,59 @@ export function candidatesFor(roster, people, date) {
 }
 
 /**
+ * One shift's row in edit mode when the shift is made of roles: a line per
+ * role with its people as removable chips and a picker of those who can do it.
+ * Anyone on the shift under a role it no longer lists keeps a chip under
+ * "Others", so editing never hides a saved assignment.
+ */
+function editableRoleRow(roster, people, shift, day, here, roleById, apply) {
+  const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
+  const listed = new Set(shift.roles.map((r) => r.roleId));
+  const slots = shift.roles.map((r) => ({
+    roleId: r.roleId, count: r.count, label: roleById.get(r.roleId)?.name || '(removed role)',
+    mine: here.filter((a) => a.roleId === r.roleId),
+  }));
+  const strays = here.filter((a) => !listed.has(a.roleId ?? null));
+  if (strays.length) slots.push({ roleId: null, count: 0, label: 'Others', mine: strays, noAdd: true });
+
+  const lines = slots.map((slot) => {
+    const chips = slot.mine.map((a) => el('span', { className: 'edit-chip' }, [
+      nameOf(a.personId),
+      el('button', {
+        type: 'button', className: 'edit-x', textContent: '×',
+        'aria-label': `Remove ${nameOf(a.personId)} from ${shift.name}, ${slot.label}, on ${day}`,
+        onclick: () => apply(roster.assignments.filter((x) => x !== a)),
+      }),
+    ]));
+    const candidates = slot.noAdd ? [] : candidatesFor(roster, people, day)
+      .filter((p) => canDoRole(p, slot.roleId, roleById));
+    let adder = null;
+    if (candidates.length) {
+      const select = el('select', { className: 'edit-add' }, [
+        el('option', { value: '', textContent: slot.mine.length < slot.count ? '+ add' : '+ add another' }),
+        ...candidates.map((p) => el('option', {
+          value: String(p.id),
+          textContent: p.availableWeekdays.includes(weekdayOf(day)) ? p.name : `${p.name} · usually off`,
+        })),
+      ]);
+      select.addEventListener('change', () => {
+        const id = Number(select.value);
+        if (id) apply([...roster.assignments, { date: day, shiftId: shift.id, personId: id, roleId: slot.roleId }]);
+      });
+      adder = select;
+    }
+    const short = slot.mine.length < slot.count;
+    return el('div', { className: short ? 'swho edit gap' : 'swho edit' }, [
+      el('span', { className: 'faint', textContent: `${slot.label}: ` }),
+      ...chips,
+      adder,
+      !chips.length && !adder ? el('span', { className: 'faint', textContent: 'nobody free' }) : null,
+    ]);
+  });
+  return el('div', { className: 'day-shift' }, [el('span', { className: 'sname', textContent: shift.name }), el('div', {}, lines)]);
+}
+
+/**
  * The day-by-day cards in edit mode: every shift row shows its people as
  * removable chips plus an "add" picker. `apply(nextAssignments)` is called with
  * a new assignments array on every change and is responsible for persisting it
@@ -43,11 +97,14 @@ export function candidatesFor(roster, people, date) {
  */
 export function editableDayCards(roster, people, shifts, apply) {
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
+  const roles = store.roles();
+  const roleById = new Map(roles.map((r) => [r.id, r]));
   return rosterDays(roster).map((day) => {
     const rows = shifts.map((shift) => {
       const here = roster.assignments.filter(
         (a) => a.date === day && a.shiftId === shift.id
       );
+      if (shift.roles?.length) return editableRoleRow(roster, people, shift, day, here, roleById, apply);
       const candidates = candidatesFor(roster, people, day);
 
       // One removable chip per person currently on this shift.
@@ -114,6 +171,7 @@ export function editableDayCards(roster, people, shifts, apply) {
 export function dayCards(roster, people, shifts) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const known = new Set(shifts.map((s) => s.id));
+  const byDay = new Map(rosterLines(roster, people, shifts, store.roles()).map((l) => [l.date, l]));
 
   return rosterDays(roster).map((day) => {
     const todays = roster.assignments.filter((a) => a.date === day);
@@ -121,6 +179,17 @@ export function dayCards(roster, people, shifts) {
 
     const rows = [...shifts, ...extraIds.map((id) => ({ id, name: '(removed)', headcount: 0 }))]
       .map((shift) => {
+        // A shift made of roles: a line per role, flagged when it is short.
+        if (shift.roles?.length) {
+          const groups = byDay.get(day)?.shifts.find((s) => s.shift.id === shift.id)?.groups || [];
+          return el('div', { className: 'day-shift' }, [
+            el('span', { className: 'sname', textContent: shift.name }),
+            el('div', {}, groups.map((g) => el('div', {
+              className: g.short ? 'swho gap' : 'swho',
+              textContent: `${g.role || 'Others'}: ${g.names.join(', ') || 'nobody'}${g.short && g.names.length ? ` (needs ${g.short} more)` : ''}`,
+            }))),
+          ]);
+        }
         const names = todays
           .filter((a) => a.shiftId === shift.id)
           .map((a) => nameOf.get(a.personId) || '(removed)');
@@ -222,9 +291,9 @@ function openExport(roster, people, shifts) {
     el('h2', { textContent: 'Share or export' }),
     el('div', { className: 'list' }, [
       row('Message', 'For a group chat or email: each day and who is on.',
-        textButtons(() => formatMessage(roster, people, shifts))),
+        textButtons(() => formatMessage(roster, people, shifts, store.roles()))),
       row("Each person's shifts", 'One line per person, to message people one by one.',
-        textButtons(() => formatPerPerson(roster, people, shifts))),
+        textButtons(() => formatPerPerson(roster, people, shifts, store.roles()))),
       row('Print or PDF', 'A clean page for the noticeboard. Choose "Save as PDF" to email it.', [
         el('button', {
           className: 'btn btn-sm', textContent: 'Print',
@@ -232,10 +301,10 @@ function openExport(roster, people, shifts) {
         }),
       ]),
       row('Calendar', "An .ics file people can add to their phone's calendar.", [
-        fileButton('Download', `${base}.ics`, () => toICS(roster, people, shifts), 'text/calendar'),
+        fileButton('Download', `${base}.ics`, () => toICS(roster, people, shifts, new Date(), store.roles()), 'text/calendar'),
       ]),
       row('Spreadsheet', 'A .csv file for Excel or Google Sheets.', [
-        fileButton('Download', `${base}.csv`, () => toCSV(roster, people, shifts), 'text/csv'),
+        fileButton('Download', `${base}.csv`, () => toCSV(roster, people, shifts, store.roles()), 'text/csv'),
       ]),
     ]),
     el('div', { className: 'modal-actions' }, [
@@ -250,7 +319,7 @@ function openExport(roster, people, shifts) {
  * `body.printing` in app.css), and the sheet is removed again afterwards.
  */
 export function printRoster(roster, people, shifts) {
-  const lines = rosterLines(roster, people, shifts);
+  const lines = rosterLines(roster, people, shifts, store.roles());
   const columns = lines[0]?.shifts.map(({ shift }) => shift) || [];
 
   const head = el('tr', {}, [
@@ -262,9 +331,9 @@ export function printRoster(roster, people, shifts) {
   ]);
   const body = lines.map((day) => el('tr', {}, [
     el('td', { className: 'print-date', textContent: formatDate(day.date) }),
-    ...day.shifts.map(({ names, short }) => el('td', {}, [
-      names.join(', ') || null,
-      short ? el('div', { className: 'print-gap', textContent: names.length ? `needs ${short} more` : 'unfilled' }) : null,
+    ...day.shifts.map(({ groups, short }) => el('td', {}, [
+      groups.flatMap((g) => g.names.map((n) => (g.role ? `${n} (${g.role})` : n))).join(', ') || null,
+      short ? el('div', { className: 'print-gap', textContent: groups.some((g) => g.names.length) ? `needs ${short} more` : 'unfilled' }) : null,
     ])),
   ]));
 

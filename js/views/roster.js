@@ -163,6 +163,7 @@ export function render(container) {
       shifts: store.shifts(),
       clashes: store.clashes(),
       dates,
+      roles: store.roles(),
     });
     built = { roster, days: dates };
     renderResults();
@@ -431,7 +432,7 @@ function buildResultView(container, rerender) {
   const cards = editing
     ? editableDayCards(roster, people, shifts, (next) => {
       roster.assignments = next;
-      roster.notes = auditRoster(roster, store.people(), store.shifts());
+      roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
       rerender();
     })
     : dayCards(roster, people, shifts);

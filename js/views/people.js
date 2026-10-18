@@ -270,6 +270,7 @@ function renderEditor(id, container) {
 
   const nameCard = renderNameCard(person);
   const availCard = renderAvailabilityCard(person, container);
+  const rolesCard = renderRolesCard(person);
   const wantedCard = renderWantedDatesCard(person, container);
   const maxCard = renderMaxShiftsCard(person);
   const awayCard = renderAwayCard(person, container);
@@ -300,7 +301,7 @@ function renderEditor(id, container) {
   });
 
   return [
-    header, nameCard.node, availCard, wantedCard, maxCard.node, awayCard, clashCard,
+    header, nameCard.node, availCard, rolesCard, wantedCard, maxCard.node, awayCard, clashCard,
     saveBtn, deleteBtn,
   ];
 }
@@ -347,6 +348,32 @@ function renderNameCard(person) {
   ]);
 
   return { node, commit };
+}
+
+/**
+ * Card: which roles this person can do. Roles that anyone can do are not
+ * listed (nobody needs ticking for them); the card is hidden when the
+ * organisation has no roles that need ticking.
+ */
+function renderRolesCard(person) {
+  const roles = store.roles().filter((r) => !r.anyone);
+  if (roles.length === 0) return null;
+  const ticks = roles.map((role) => {
+    const box = el('input', {
+      type: 'checkbox', checked: (person.roleIds || []).includes(role.id),
+      onchange: () => {
+        const have = new Set(store.people().find((p) => p.id === person.id)?.roleIds || []);
+        if (box.checked) have.add(role.id); else have.delete(role.id);
+        store.updatePerson(person.id, { roleIds: [...have] });
+      },
+    });
+    return el('label', { className: 'row-tight' }, [box, el('span', { textContent: role.name })]);
+  });
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'Can do' }),
+    ...ticks,
+    el('div', { className: 'faint', textContent: 'On a shift made of roles, they are only put on roles ticked here.' }),
+  ]);
 }
 
 /** Card: the weekday picker for standing availability. */

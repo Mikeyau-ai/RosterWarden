@@ -35,16 +35,59 @@ function shortDate(iso) {
 }
 
 /**
+ * Who is on a shift, grouped by role: `[{ role, names, short }]`.
+ *
+ * A shift made of roles gets one group per role it lists, in order, each with
+ * how many more it needed. A shift with none gets one group with `role: null`.
+ * Anyone on the shift under some other role (one removed from the shift since,
+ * or a roster made before the shift had roles) follows as extra groups, so
+ * nobody on a saved roster ever disappears from the output.
+ */
+function groupsOf(shift, here, nameOf, roleName) {
+  const mine = (id) => here.filter((a) => (a.roleId ?? null) === id);
+  const who = (list) => list.map((a) => nameOf.get(a.personId) || '(removed)');
+  const listed = shift.roles?.length ? shift.roles : [];
+  const groups = [];
+  if (listed.length) {
+    for (const r of listed) {
+      const list = mine(r.roleId);
+      groups.push({ role: roleName(r.roleId), names: who(list), short: Math.max(0, r.count - list.length) });
+    }
+  } else {
+    const list = mine(null);
+    groups.push({ role: null, names: who(list), short: Math.max(0, shift.headcount - list.length) });
+  }
+  const shown = new Set(listed.length ? listed.map((r) => r.roleId) : [null]);
+  for (const id of [...new Set(here.map((a) => a.roleId ?? null))].filter((id) => !shown.has(id))) {
+    groups.push({ role: id === null ? '(no role)' : roleName(id), names: who(mine(id)), short: 0 });
+  }
+  return groups;
+}
+
+/** "Anna (Lead singer)" for each person in some groups; just the name where there is no role. */
+function labelled(groups) {
+  return groups.flatMap((g) => g.names.map((n) => (g.role ? `${n} (${g.role})` : n)));
+}
+
+/** True when a roster is made of roles, so its spreadsheet needs a Role column. */
+function usesRoles(roster, shifts) {
+  return shifts.some((s) => s.roles?.length) || roster.assignments.some((a) => a.roleId != null);
+}
+
+/**
  * The roster as rows: one per day, each with one entry per shift.
  *
  * Shifts follow the organisation's current order; a shift deleted since the
  * roster was saved still appears (as "(removed)") if anyone was on it.
- * Each shift entry is `{ shift, names, short }`, `short` being how many more
- * people it needed.
+ * Each shift entry is `{ shift, names, short, groups }`: `names` everyone on
+ * it, `short` how many more people it needed, and `groups` the same split by
+ * role (see groupsOf).
  */
-export function rosterLines(roster, people, shifts) {
+export function rosterLines(roster, people, shifts, roles = []) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const known = new Set(shifts.map((s) => s.id));
+  const roleNames = new Map(roles.map((r) => [r.id, r.name]));
+  const roleName = (id) => roleNames.get(id) || '(removed role)';
 
   return rosterDays(roster).map((date) => {
     const todays = roster.assignments.filter((a) => a.date === date);
@@ -55,10 +98,10 @@ export function rosterLines(roster, people, shifts) {
     return {
       date,
       shifts: [...shifts, ...extra].map((shift) => {
-        const names = todays
-          .filter((a) => a.shiftId === shift.id)
-          .map((a) => nameOf.get(a.personId) || '(removed)');
-        return { shift, names, short: Math.max(0, shift.headcount - names.length) };
+        const here = todays.filter((a) => a.shiftId === shift.id);
+        const names = here.map((a) => nameOf.get(a.personId) || '(removed)');
+        const groups = groupsOf(shift, here, nameOf, roleName);
+        return { shift, names, short: groups.reduce((sum, g) => sum + g.short, 0), groups };
       }),
     };
   });
@@ -78,16 +121,25 @@ function span(roster) {
  * with its shifts. Plain text with no table, because a fixed-width table
  * breaks the moment a phone wraps it.
  */
-export function formatMessage(roster, people, shifts) {
+export function formatMessage(roster, people, shifts, roles = []) {
   const lines = [`${roster.name} (${span(roster)})`];
-  for (const day of rosterLines(roster, people, shifts)) {
+  for (const day of rosterLines(roster, people, shifts, roles)) {
     lines.push('', shortDate(day.date));
-    for (const { shift, names, short } of day.shifts) {
+    for (const { shift, names, short, groups } of day.shifts) {
       if (names.length === 0 && shift.headcount === 0) continue;   // a shift nobody is needed on
       const times = shiftTimes(shift);
       const label = times ? `${shift.name} ${times}` : shift.name;
-      const who = names.length ? names.join(', ') : 'nobody yet';
-      lines.push(`• ${label}: ${who}${names.length && short ? ` (needs ${short} more)` : ''}`);
+      if (groups.length === 1 && groups[0].role === null) {
+        const who = names.length ? names.join(', ') : 'nobody yet';
+        lines.push(`• ${label}: ${who}${names.length && short ? ` (needs ${short} more)` : ''}`);
+        continue;
+      }
+      // A shift of roles: its name, then a line per role.
+      lines.push(`• ${label}`);
+      for (const g of groups) {
+        const who = g.names.length ? g.names.join(', ') : 'nobody yet';
+        lines.push(`   ${g.role || 'Others'}: ${who}${g.names.length && g.short ? ` (needs ${g.short} more)` : ''}`);
+      }
     }
   }
   return lines.join('\n');
@@ -98,16 +150,22 @@ export function formatMessage(roster, people, shifts) {
  * individually. The shift name is added only when the roster has more than
  * one shift, since "Sun 11 Oct (Cafe)" is clutter if Cafe is all there is.
  */
-export function formatPerPerson(roster, people, shifts) {
+export function formatPerPerson(roster, people, shifts, roles = []) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const shiftOf = new Map(shifts.map((s) => [s.id, s]));
+  const roleNames = new Map(roles.map((r) => [r.id, r.name]));
   const manyShifts = new Set(roster.assignments.map((a) => a.shiftId)).size > 1;
 
   const byPerson = new Map();
   for (const a of [...roster.assignments].sort((x, y) => x.date.localeCompare(y.date))) {
     const name = nameOf.get(a.personId) || '(removed)';
     const shift = shiftOf.get(a.shiftId);
-    const when = shortDate(a.date) + (manyShifts ? ` (${shift ? shift.name : 'removed shift'})` : '');
+    // The shift name only when there are several; the role whenever the place had one.
+    const detail = [
+      manyShifts ? (shift ? shift.name : 'removed shift') : null,
+      a.roleId != null ? (roleNames.get(a.roleId) || 'removed role') : null,
+    ].filter(Boolean).join(', ');
+    const when = shortDate(a.date) + (detail ? ` (${detail})` : '');
     if (!byPerson.has(name)) byPerson.set(name, []);
     byPerson.get(name).push(when);
   }
@@ -130,13 +188,19 @@ function csvField(value) {
  * still unfilled, so the sheet can be sorted or filtered by person or date.
  * Starts with a byte-order mark so Excel reads names with accents correctly.
  */
-export function toCSV(roster, people, shifts) {
-  const rows = [['Date', 'Day', 'Shift', 'Start', 'End', 'Person']];
-  for (const day of rosterLines(roster, people, shifts)) {
-    for (const { shift, names, short } of day.shifts) {
+export function toCSV(roster, people, shifts, roles = []) {
+  // A Role column only when the roster is made of roles, so a plain roster's
+  // spreadsheet is exactly what it always was.
+  const withRole = usesRoles(roster, shifts);
+  const rows = [['Date', 'Day', 'Shift', 'Start', 'End', 'Person', ...(withRole ? ['Role'] : [])]];
+  for (const day of rosterLines(roster, people, shifts, roles)) {
+    for (const { shift, groups } of day.shifts) {
       const base = [day.date, weekdayName(day.date), shift.name, shift.start || '', shift.end || ''];
-      for (const name of names) rows.push([...base, name]);
-      for (let i = 0; i < short; i++) rows.push([...base, '(unfilled)']);
+      for (const g of groups) {
+        const role = withRole ? [g.role || ''] : [];
+        for (const name of g.names) rows.push([...base, name, ...role]);
+        for (let i = 0; i < g.short; i++) rows.push([...base, '(unfilled)', ...role]);
+      }
     }
   }
   return '\uFEFF' + rows.map((r) => r.map(csvField).join(',')).join('\r\n') + '\r\n';
@@ -168,14 +232,15 @@ function nextDay(iso) {
  * all-day event; one that ends before it starts runs past midnight.
  * `now` is only a parameter so tests get a fixed timestamp.
  */
-export function toICS(roster, people, shifts, now = new Date()) {
+export function toICS(roster, people, shifts, now = new Date(), roles = []) {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const out = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Sixth Day Studios//RosterWarden//EN',
     'CALSCALE:GREGORIAN', `X-WR-CALNAME:${icsText(roster.name)}`,
   ];
-  for (const day of rosterLines(roster, people, shifts)) {
-    for (const { shift, names } of day.shifts) {
+  for (const day of rosterLines(roster, people, shifts, roles)) {
+    for (const { shift, groups } of day.shifts) {
+      const names = labelled(groups);
       if (names.length === 0) continue;
       const timed = Boolean(shift.start && shift.end);
       const endDate = timed && shift.end <= shift.start ? nextDay(day.date) : day.date;

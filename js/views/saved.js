@@ -150,7 +150,7 @@ function renderOpen(roster, container) {
     ? editableDayCards(roster, people, shifts, (next) => {
       store.updateRoster(roster.id, {
         assignments: next,
-        notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts()),
+        notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
       });
       render(container);
     })

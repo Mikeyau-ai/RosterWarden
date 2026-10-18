@@ -129,13 +129,42 @@ export function canWork(person, iso) {
 }
 
 /**
- * Choose the fairest eligible person for one vacancy, or null if there is none.
+ * True if `person` can do `roleId`: the role is open to anyone, or they are
+ * ticked for it. A role this list doesn't know (deleted) is open to nobody -
+ * an empty slot that gets reported beats a guess.
+ *
+ * `roleId` null means "no role": the shift has no roles, so there is nothing
+ * to be ticked for.
  */
-function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorked) {
+export function canDoRole(person, roleId, roleById) {
+  if (roleId == null) return true;
+  if (roleById.get(roleId)?.anyone) return true;
+  return (person.roleIds || []).includes(roleId);
+}
+
+/**
+ * The places a shift needs filled: one per role with how many, or - when the
+ * shift has no roles - a single place with no role and its plain headcount.
+ */
+function slotsOf(shift) {
+  if (shift.roles?.length) {
+    return shift.roles
+      .filter((r) => r.count > 0)
+      .map((r) => ({ roleId: r.roleId, count: r.count }));
+  }
+  return [{ roleId: null, count: Math.max(0, shift.headcount) }];
+}
+
+/**
+ * Choose the fairest eligible person for one vacancy, or null if there is none.
+ * `roleOk` narrows the pool to people who can do the role being filled.
+ */
+function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorked, roleOk = () => true) {
   const eligible = people.filter(
     (p) =>
       !usedToday.has(p.id) &&                                  // not already on today
       canWork(p, day) &&                                       // availability + blackouts
+      roleOk(p) &&                                             // can do this role
       ![...(incompatible.get(p.id) || [])].some((id) => placedIds.has(id)) && // no clash
       (p.maxShifts == null || worked.get(p.id) < p.maxShifts)
   );
@@ -165,7 +194,7 @@ function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorke
  * availability at all - is pushed onto `roster.notes` instead of being silently
  * dropped, so the UI can surface it next to the result.
  */
-export function buildRoster({ orgId, name, people, shifts, clashes, start, end, weekdays, dates }) {
+export function buildRoster({ orgId, name, people, shifts, clashes, start, end, weekdays, dates, roles = [] }) {
   // `dates` is the canonical input: the exact days to roster, as chosen on the
   // calendar. start/end/weekdays remain supported as a shorthand that derives
   // the same list, which is what the test suite and older saved rosters use.
@@ -208,6 +237,7 @@ export function buildRoster({ orgId, name, people, shifts, clashes, start, end, 
   }
 
   const incompatible = clashMap(clashes);
+  const roleById = new Map(roles.map((r) => [r.id, r]));
   const worked = new Map(roll.map((p) => [p.id, 0]));
   const lastWorked = new Map(roll.map((p) => [p.id, NEVER]));
 
@@ -218,23 +248,39 @@ export function buildRoster({ orgId, name, people, shifts, clashes, start, end, 
 
     for (const shift of shifts) {
       const placedIds = new Set();
-      let placed = 0;
+      let slots = slotsOf(shift);
 
-      for (let i = 0; i < Math.max(0, shift.headcount); i++) {
-        const who = pick(day, roll, usedToday, placedIds, incompatible, worked, lastWorked);
-        if (!who) break;
-        placed++;
-        placedIds.add(who.id);
-        usedToday.add(who.id);
-        worked.set(who.id, worked.get(who.id) + 1);
-        lastWorked.set(who.id, toDays(day));
-        roster.assignments.push({ date: day, shiftId: shift.id, personId: who.id });
+      // A shift with several roles fills the hardest one first: the role with
+      // the fewest spare people. Otherwise the only drummer could be used up on
+      // an easier role, leaving the drums - which nobody else can play - empty.
+      if (slots.length > 1) {
+        const spare = (slot) => roll.filter(
+          (p) => !usedToday.has(p.id) && canWork(p, day) && canDoRole(p, slot.roleId, roleById)
+        ).length - slot.count;
+        slots = slots
+          .map((slot, order) => ({ ...slot, order, spare: spare(slot) }))
+          .sort((a, b) => a.spare - b.spare || a.order - b.order);
       }
 
+      for (const slot of slots) {
+        const roleOk = (p) => canDoRole(p, slot.roleId, roleById);
+        for (let i = 0; i < slot.count; i++) {
+          const who = pick(day, roll, usedToday, placedIds, incompatible, worked, lastWorked, roleOk);
+          if (!who) break;
+          placedIds.add(who.id);
+          usedToday.add(who.id);
+          worked.set(who.id, worked.get(who.id) + 1);
+          lastWorked.set(who.id, toDays(day));
+          roster.assignments.push({
+            date: day, shiftId: shift.id, personId: who.id,
+            ...(slot.roleId != null ? { roleId: slot.roleId } : {}),
+          });
+        }
+      }
     }
   }
 
-  roster.notes = auditRoster(roster, roll, shifts);
+  roster.notes = auditRoster(roster, roll, shifts, roles);
   return roster;
 }
 
@@ -246,16 +292,30 @@ export function buildRoster({ orgId, name, people, shifts, clashes, start, end, 
  * how it first came out of the scheduler. Covers: understaffed shifts, requests
  * that were asked for but not granted, and active people used nowhere.
  */
-export function auditRoster(roster, people, shifts) {
+export function auditRoster(roster, people, shifts, roles = []) {
   const notes = [];
+  const roleById = new Map(roles.map((r) => [r.id, r]));
   const active = people.filter((p) => p.active);
   const days = roster.days?.length
     ? [...roster.days].sort()
     : [...new Set(roster.assignments.map((a) => a.date))].sort();
 
-  // Understaffed shifts, day by day, in shift order.
+  // Understaffed shifts, day by day, in shift order. A shift with roles is
+  // checked role by role, so "needs a drummer" is not hidden by a full band.
   for (const day of days) {
     for (const shift of shifts) {
+      if (shift.roles?.length) {
+        for (const r of shift.roles) {
+          const n = roster.assignments.filter(
+            (a) => a.date === day && a.shiftId === shift.id && a.roleId === r.roleId
+          ).length;
+          if (n < r.count) {
+            const label = roleById.get(r.roleId)?.name || '(removed role)';
+            notes.push(`${formatDate(day)} - ${shift.name}, ${label}: only ${n} of ${r.count} filled.`);
+          }
+        }
+        continue;
+      }
       const n = roster.assignments.filter(
         (a) => a.date === day && a.shiftId === shift.id
       ).length;
@@ -292,6 +352,11 @@ export function auditRoster(roster, people, shifts) {
       notes.push(`${p.name} was not rostered at all - no days ticked in their availability.`);
     } else if (days.every((d) => !canWork(p, d))) {
       notes.push(`${p.name} was not rostered at all - unavailable on every rostered day.`);
+    } else if (!shifts.some((s) => !s.roles?.length || s.roles.some((r) => canDoRole(p, r.roleId, roleById)))) {
+      // Every shift here is made of roles and they can do none of them.
+      notes.push((p.roleIds || []).length === 0
+        ? `${p.name} was not rostered at all - no roles ticked.`
+        : `${p.name} was not rostered at all - none of their roles are needed on these shifts.`);
     }
   }
 
@@ -314,15 +379,18 @@ export function counts(roster) {
  * printout. The on-screen view uses a day-by-day layout instead, because a wide
  * table is the wrong shape for a phone.
  */
-export function formatTable(roster, people, shifts) {
+export function formatTable(roster, people, shifts, roles = []) {
   const names = new Map(people.map((p) => [p.id, p.name]));
+  const roleName = new Map(roles.map((r) => [r.id, r.name]));
 
   // Index assignments by date+shift so each cell is a single lookup.
   const cells = new Map();
   for (const a of roster.assignments) {
     const key = `${a.date}|${a.shiftId}`;
     if (!cells.has(key)) cells.set(key, []);
-    cells.get(key).push(names.get(a.personId) || `#${a.personId}`);
+    const who = names.get(a.personId) || `#${a.personId}`;
+    // On a shift made of roles, say which role each person has.
+    cells.get(key).push(a.roleId != null ? `${who} (${roleName.get(a.roleId) || 'removed role'})` : who);
   }
 
   const days = [...new Set(roster.assignments.map((a) => a.date))].sort();

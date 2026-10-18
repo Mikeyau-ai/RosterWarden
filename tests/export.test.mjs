@@ -106,3 +106,35 @@ test('fileBase makes a safe file name', () => {
   assert.equal(fileBase({ name: 'Christmas: 24/25 Dec!' }), 'Christmas-24-25-Dec');
   assert.equal(fileBase({ name: '' }), 'roster');
 });
+
+// ------------------------------------------------------------- roles --
+const roles = [{ id: 1, name: 'Lead singer' }, { id: 2, name: 'Drums' }];
+const band = [{ id: 20, name: 'Service', start: '09:00', end: '11:00', headcount: 3,
+  roles: [{ roleId: 1, count: 1 }, { roleId: 2, count: 2 }] }];
+const bandRoster = {
+  id: 100, name: 'Band', days: ['2026-10-11'], notes: [],
+  assignments: [
+    { date: '2026-10-11', shiftId: 20, personId: 1, roleId: 1 },
+    { date: '2026-10-11', shiftId: 20, personId: 2, roleId: 2 },
+  ],
+};
+
+test('a message lists a line per role and says what is short', () => {
+  const text = formatMessage(bandRoster, people, band, roles);
+  assert.ok(text.includes('   Lead singer: Sarah'), text);
+  assert.ok(text.includes('   Drums: Tom (needs 1 more)'), text);
+});
+
+test('the spreadsheet gets a Role column only when roles are in use', () => {
+  const withRoles = toCSV(bandRoster, people, band, roles);
+  assert.ok(withRoles.split('\r\n')[0].endsWith(',Role'));
+  assert.ok(withRoles.includes('Sarah,Lead singer'));
+  assert.ok(withRoles.includes('(unfilled),Drums'));
+  assert.ok(!toCSV(roster, people, shifts).includes('Role'));
+});
+
+test("each person's line says their role, and the calendar names it", () => {
+  assert.ok(formatPerPerson(bandRoster, people, band, roles).includes('Sarah'));
+  assert.ok(formatPerPerson(bandRoster, people, band, roles).includes('Lead singer'));
+  assert.ok(toICS(bandRoster, people, band, new Date(0), roles).includes('Sarah (Lead singer)'));
+});
