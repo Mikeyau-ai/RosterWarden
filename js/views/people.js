@@ -109,11 +109,22 @@ function renderList(container) {
   // Shortcut into the day walk-through for everyone still without any days -
   // the usual state right after a bulk add.
   const needDays = people.filter((p) => (p.availableWeekdays || []).length === 0);
-  const setDaysBtn = needDays.length ? el('button', {
-    className: 'btn btn-sm btn-block', style: 'margin:.6rem 0',
-    textContent: `Set days for ${needDays.length} ${needDays.length === 1 ? 'person' : 'people'} →`,
-    onclick: () => { stepIds = needDays.map((p) => p.id); stepAt = 0; render(container); },
-  }) : null;
+  const who = `${needDays.length} ${needDays.length === 1 ? 'person' : 'people'}`;
+  const setDaysBtn = needDays.length ? el('div', { style: 'margin:.6rem 0', className: 'row-tight' }, [
+    el('button', {
+      className: 'btn btn-sm', textContent: `Available any day: ${who}`,
+      onclick: () => {
+        // Everyone without days becomes available every day; untick days per person after.
+        for (const p of needDays) store.updatePerson(p.id, { availableWeekdays: [0, 1, 2, 3, 4, 5, 6] });
+        toast(`${who} can now work any day`);
+        render(container);
+      },
+    }),
+    el('button', {
+      className: 'btn btn-sm', textContent: 'Set one by one →',
+      onclick: () => { stepIds = needDays.map((p) => p.id); stepAt = 0; render(container); },
+    }),
+  ]) : null;
 
   const list = el('div', { className: 'list' }, people.map((p) => {
     const item = el('button', {
@@ -199,7 +210,7 @@ function bulkAddDialog() {
     textarea.addEventListener('input', refresh);
 
     addBtn.addEventListener('click', () => {
-      const created = toAdd.map((e) => store.addPerson(e.name, e.weekdays || []));
+      const created = toAdd.map((e) => store.addPerson(e.name, e.weekdays ?? undefined));
       toast(`${created.length} added`);
       close(created);
     });

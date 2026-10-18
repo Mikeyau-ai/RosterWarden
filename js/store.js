@@ -437,14 +437,15 @@ export const store = {
   /**
    * Add a person, and return them.
    *
-   * Days default to none, not everything: assuming a new person can work any
-   * day quietly puts them on shifts nobody agreed to. An empty pattern makes
-   * the roster say "not rostered - no days ticked", which is a question, where
-   * a wrong assumption is a mistake you only spot on the day. `availableWeekdays`
-   * is passed only when the user actually stated the days (e.g. typed alongside
-   * the name in a pasted list).
+   * A person is available every day until told otherwise: untick the days they
+   * can't do, or add time away (Planning Center blockouts come in as away
+   * dates). Rosters only use the dates you pick, so a workplace that only
+   * trades on Sundays never needs Sunday ticked person by person.
+   * `availableWeekdays` is passed when the days were actually stated (typed
+   * alongside the name in a pasted list); an explicit empty list means none,
+   * and makes the roster say "not rostered - no days ticked".
    */
-  addPerson(name, availableWeekdays = []) {
+  addPerson(name, availableWeekdays = [0, 1, 2, 3, 4, 5, 6]) {
     const person = {
       id: newId(), orgId: this.data.currentOrgId,
       name: name.trim(), active: true,
