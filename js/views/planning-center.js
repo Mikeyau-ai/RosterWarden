@@ -169,7 +169,7 @@ function connectedBody(org, teams, redraw, fail, err) {
  *
  * People are matched on their Planning Center id first, then on name (so a
  * list built by hand before connecting is linked, not duplicated). New people
- * arrive with no days ticked, same as adding them by hand. Returns a one-line
+ * arrive available on the days the organisation is open, same as adding them by hand. Returns a one-line
  * summary for the toast.
  */
 async function updateFromTeam(org, link, progress) {

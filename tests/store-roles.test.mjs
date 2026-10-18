@@ -157,3 +157,11 @@ test('copying a shift copies its roles and times, and puts the copy right after 
   assert.equal(nine.roles[0].count, 2, 'changing the copy leaves the original alone');
   assert.equal(last.name, 'Pack up');
 });
+
+test('a new person is available on the days the organisation is open, unless told otherwise', () => {
+  const s = fresh();
+  s.updateOrg(s.currentOrg().id, { openDays: [6] });
+  assert.deepEqual(s.addPerson('Amy').availableWeekdays, [6]);
+  assert.deepEqual(s.addPerson('Bo', [0, 1]).availableWeekdays, [0, 1], 'stated days win');
+  assert.deepEqual(s.addPerson('Cy', []).availableWeekdays, [], 'an explicit none stays none');
+});
