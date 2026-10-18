@@ -10,7 +10,8 @@
  */
 import { store } from '../store.js';
 import { el, copyText, dialog, downloadText, toast, collapsible } from '../ui.js';
-import { canSend, sendToPlanningCenter } from './planning-center.js';
+import { canSend, sendToPlanningCenter, checkReplies } from './planning-center.js';
+import { responseKey } from '../sources/planning-center.js';
 import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
@@ -198,19 +199,24 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
       el('div', { className: 'list' }, free.map((p) => option(
         p.name,
         p.availableWeekdays.includes(weekdayOf(day)) ? null : 'usually off this day',
-        roster.assignments.map((a) => (a === assignment ? { ...a, personId: p.id } : a)),
+        // A hand-made change is pinned, so a rebuild keeps it.
+        roster.assignments.map((a) => (a === assignment ? { ...a, personId: p.id, locked: true } : a)),
       ))),
       swaps.length ? el('label', { className: 'label', textContent: 'Swap with' }) : null,
       el('div', { className: 'list' }, swaps.map((b) => option(
         nameOf(b.personId), `${shiftOf(b.shiftId)}${roleLabel(b)}`,
         roster.assignments.map((a) => {
-          if (a === assignment) return { ...a, personId: b.personId };
-          if (a === b) return { ...a, personId: assignment.personId };
+          if (a === assignment) return { ...a, personId: b.personId, locked: true };
+          if (a === b) return { ...a, personId: assignment.personId, locked: true };
           return a;
         }),
       ))),
       !free.length && !swaps.length ? el('div', { className: 'muted', textContent: 'Nobody else is free that day.' }) : null,
       el('div', { className: 'modal-actions' }, [
+        el('button', {
+          className: 'btn', textContent: assignment.locked ? 'Unlock' : 'Lock here',
+          onclick: () => close({ next: roster.assignments.map((a) => (a === assignment ? { ...a, locked: !a.locked } : a)) }),
+        }),
         el('button', {
           className: 'btn btn-danger', textContent: 'Take off',
           onclick: () => close({ next: roster.assignments.filter((a) => a !== assignment) }),
@@ -220,6 +226,28 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
     ];
   });
   if (choice) apply(choice.next);
+}
+
+/**
+ * A card listing everyone who declined on Planning Center, each with a button
+ * to replace them. Null when nobody has.
+ */
+export function declinedCard(roster, people, shifts, apply) {
+  const roleById = new Map(store.roles().map((r) => [r.id, r]));
+  const declined = roster.assignments.filter((a) => roster.responses?.[responseKey(a)] === 'D');
+  if (declined.length === 0) return null;
+  const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
+  const shiftOf = (id) => shifts.find((s) => s.id === id)?.name || '(removed)';
+  return el('div', { className: 'notice bad' }, [
+    el('strong', { textContent: `${declined.length} declined` }),
+    ...declined.map((a) => el('div', { className: 'spread' }, [
+      el('span', { textContent: `${nameOf(a.personId)} · ${formatDate(a.date, { withWeekday: false })} · ${shiftOf(a.shiftId)}` }),
+      el('button', {
+        className: 'btn btn-sm', textContent: 'Replace',
+        onclick: () => pickReplacement(roster, people, shifts, a, roleById, apply),
+      }),
+    ])),
+  ]);
 }
 
 /**
@@ -238,10 +266,14 @@ export function dayCards(roster, people, shifts, apply = null) {
   /** The people on a place, as names - buttons that offer a swap when `apply` is given. */
   const nameNodes = (list) => list.flatMap((a, i) => {
     const name = nameOf.get(a.personId) || '(removed)';
+    // Padlock for a pinned place; tick or cross for a Planning Center reply.
+    const reply = roster.responses?.[responseKey(a)];
+    const label = `${name}${a.locked ? ' 🔒' : ''}${reply === 'C' ? ' ✓' : reply === 'D' ? ' ✕' : ''}`;
+    const mark = reply === 'D' ? 'name-btn declined' : 'name-btn';
     return [i ? ', ' : null, apply ? el('button', {
-      type: 'button', className: 'name-btn', textContent: name,
+      type: 'button', className: mark, textContent: label,
       onclick: () => pickReplacement(roster, people, shifts, a, roleById, apply),
-    }) : name];
+    }) : el('span', { className: reply === 'D' ? 'declined' : '', textContent: label })];
   });
 
   return rosterDays(roster).map((day) => {
@@ -408,10 +440,10 @@ export function notesBox(roster) {
 }
 
 /** The Share / export button for a roster; opens the export menu. */
-export function exportButton(roster, people, shifts) {
+export function exportButton(roster, people, shifts, onReplies = () => {}) {
   return el('button', {
     className: 'btn', textContent: 'Share / export',
-    onclick: () => openExport(roster, people, shifts),
+    onclick: () => openExport(roster, people, shifts, onReplies),
   });
 }
 
@@ -432,7 +464,7 @@ async function shareText(title, text) {
  * The export menu: message and per-person text (copy or share), print, and
  * calendar / spreadsheet files. It stays open so several can be done in a row.
  */
-function openExport(roster, people, shifts) {
+function openExport(roster, people, shifts, onReplies) {
   const base = fileBase(roster);
 
   /** One row of the menu: what it is, a line on when to use it, its buttons. */
@@ -479,6 +511,14 @@ function openExport(roster, people, shifts) {
         el('button', {
           className: 'btn btn-sm', textContent: 'Send…',
           onclick: () => { close(); sendToPlanningCenter(roster, (text) => { if (text) toast(text); }); },
+        }),
+        el('button', {
+          className: 'btn btn-sm', textContent: 'Check replies',
+          onclick: async () => {
+            close();
+            const replies = await checkReplies(roster);
+            if (replies) onReplies(replies);
+          },
         }),
       ]) : null,
     ]),

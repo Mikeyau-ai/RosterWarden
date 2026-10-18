@@ -155,11 +155,14 @@ function slotsOf(shift) {
   return [{ roleId: null, count: Math.max(0, shift.headcount) }];
 }
 
+/** How far back (in days) a saved roster still counts towards who is due a turn. */
+const HISTORY_DAYS = 90;
+
 /**
  * Choose the fairest eligible person for one vacancy, or null if there is none.
  * `roleOk` narrows the pool to people who can do the role being filled.
  */
-function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorked, roleOk = () => true) {
+function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorked, roleOk = () => true, bias = new Map()) {
   const eligible = people.filter(
     (p) =>
       !usedToday.has(p.id) &&                                  // not already on today
@@ -178,7 +181,8 @@ function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorke
     const rx = (x.requests || []).includes(day) ? 0 : 1;
     const ry = (y.requests || []).includes(day) ? 0 : 1;
     if (rx !== ry) return rx - ry;
-    const wx = worked.get(x.id), wy = worked.get(y.id);
+    // Turns taken in recent saved rosters count too, so fairness holds from one roster to the next.
+    const wx = worked.get(x.id) + (bias.get(x.id) || 0), wy = worked.get(y.id) + (bias.get(y.id) || 0);
     if (wx !== wy) return wx - wy;
     const lx = lastWorked.get(x.id), ly = lastWorked.get(y.id);
     if (lx !== ly) return lx - ly;
@@ -194,7 +198,10 @@ function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorke
  * availability at all - is pushed onto `roster.notes` instead of being silently
  * dropped, so the UI can surface it next to the result.
  */
-export function buildRoster({ orgId, name, people, shifts, clashes, start, end, weekdays, dates, roles = [] }) {
+export function buildRoster({
+  orgId, name, people, shifts, clashes, start, end, weekdays, dates, roles = [],
+  history = [], locked = [],
+}) {
   // `dates` is the canonical input: the exact days to roster, as chosen on the
   // calendar. start/end/weekdays remain supported as a shorthand that derives
   // the same list, which is what the test suite and older saved rosters use.
@@ -241,13 +248,38 @@ export function buildRoster({ orgId, name, people, shifts, clashes, start, end, 
   const worked = new Map(roll.map((p) => [p.id, 0]));
   const lastWorked = new Map(roll.map((p) => [p.id, NEVER]));
 
+  // Recent turns from saved rosters (`history`: their assignments), so someone
+  // who served the last few weeks waits behind someone who didn't. Only the
+  // 90 days before the first day count (HISTORY_DAYS), and `worked` itself stays this
+  // roster's own tally, which is what a person's max-shifts limit is checked against.
+  const bias = new Map();
+  const first = toDays(days[0]);
+  for (const a of history) {
+    const d = toDays(a.date);
+    if (d >= first || first - d > HISTORY_DAYS || !worked.has(a.personId)) continue;
+    bias.set(a.personId, (bias.get(a.personId) || 0) + 1);
+    lastWorked.set(a.personId, Math.max(lastWorked.get(a.personId), d));
+  }
+
   for (const day of days) {
     // One shift per person per day: whoever is already on today is out of the
     // pool for the day's remaining shifts.
     const usedToday = new Set();
 
+    // Places the user pinned (locked) on this day go in first, exactly as they
+    // were, and the scheduler only fills what is left around them.
+    const pinned = locked.filter((a) => a.date === day);
+    for (const a of pinned) {
+      usedToday.add(a.personId);
+      if (worked.has(a.personId)) {
+        worked.set(a.personId, worked.get(a.personId) + 1);
+        lastWorked.set(a.personId, toDays(day));
+      }
+      roster.assignments.push({ ...a, locked: true });
+    }
+
     for (const shift of shifts) {
-      const placedIds = new Set();
+      const placedIds = new Set(pinned.filter((a) => a.shiftId === shift.id).map((a) => a.personId));
       let slots = slotsOf(shift);
 
       // A shift with several roles fills the hardest one first: the role with
@@ -264,8 +296,11 @@ export function buildRoster({ orgId, name, people, shifts, clashes, start, end, 
 
       for (const slot of slots) {
         const roleOk = (p) => canDoRole(p, slot.roleId, roleById);
-        for (let i = 0; i < slot.count; i++) {
-          const who = pick(day, roll, usedToday, placedIds, incompatible, worked, lastWorked, roleOk);
+        const pinnedHere = pinned.filter(
+          (a) => a.shiftId === shift.id && (a.roleId ?? null) === slot.roleId
+        ).length;
+        for (let i = pinnedHere; i < slot.count; i++) {
+          const who = pick(day, roll, usedToday, placedIds, incompatible, worked, lastWorked, roleOk, bias);
           if (!who) break;
           placedIds.add(who.id);
           usedToday.add(who.id);

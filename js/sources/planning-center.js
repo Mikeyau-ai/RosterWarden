@@ -343,14 +343,48 @@ function classify(assignments, lookup) {
   return { sendable, unlinked, unmapped };
 }
 
-/** A plan's address for the team's members, and who is already on it as "personId|position". */
+/**
+ * A plan's address for the team's members, who is already on it as
+ * "personId|position", and each one's reply ('C' confirmed, 'U' waiting, 'D' declined).
+ */
 async function planMembers(lookup, plan) {
   const base = `/services/v2/service_types/${lookup.serviceTypeId}/plans/${plan.id}/team_members`;
   const { data: existing } = await all(`${base}?where[team_id]=${lookup.teamId}&include=person`);
-  const onPlan = new Set(existing.map((m) => (
-    `${m.relationships?.person?.data?.id}|${m.attributes.team_position_name}`
-  )));
-  return { base, onPlan };
+  const keyOf = (m) => `${m.relationships?.person?.data?.id}|${m.attributes.team_position_name}`;
+  return {
+    base,
+    onPlan: new Set(existing.map(keyOf)),
+    replies: new Map(existing.map((m) => [keyOf(m), m.attributes.status])),
+  };
+}
+
+/** The key a roster place is filed under in `roster.responses`. */
+export function responseKey(a) {
+  return `${a.date}|${a.personId}|${a.shiftId}|${a.roleId ?? ''}`;
+}
+
+/**
+ * Who has replied to the places sent earlier: reads each plan's team members
+ * (nothing is changed) and returns `{ [responseKey]: 'C' | 'U' | 'D' }` for
+ * every roster place found on a plan.
+ */
+export async function responsesFor(assignments, lookup) {
+  const { sendable } = classify(assignments, lookup);
+  const out = {};
+  if (sendable.length === 0) return out;
+
+  const dates = [...new Set(sendable.map((a) => a.date))].sort();
+  const plans = await plansBetween(lookup.serviceTypeId, dates[0], dates[dates.length - 1]);
+  for (const date of dates) {
+    const plan = plans.get(date);
+    if (!plan) continue;
+    const { replies } = await planMembers(lookup, plan);
+    for (const a of sendable.filter((x) => x.date === date)) {
+      const reply = replies.get(`${a.pcoId}|${a.position}`);
+      if (reply) out[responseKey(a)] = reply;
+    }
+  }
+  return out;
 }
 
 /**
