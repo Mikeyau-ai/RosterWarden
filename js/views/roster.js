@@ -14,7 +14,7 @@ import {
   el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet,
 } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, exportButton,
+  editableDayCards, dayCards, tally, notesBox, gapFixes, exportButton,
 } from './roster-parts.js';
 import { show } from '../app.js';
 import * as teamView from './team.js';
@@ -171,7 +171,9 @@ export function render(container) {
 
   /** Redraw just the result section, without disturbing the form above it. */
   const renderResults = () => {
-    fill(resultsBox, built ? buildResultView(container, renderResults) : []);
+    fill(resultsBox, built
+      ? buildResultView(container, renderResults, { rebuild: () => onBuild(), openSkills: () => openTeam('skills') })
+      : []);
   };
 
   /** Build the roster from the current form values and show the result. */
@@ -450,7 +452,7 @@ function availabilityNotes(container) {
 }
 
 /** Build the day-by-day result view, tally and action buttons for `built`. */
-function buildResultView(container, rerender) {
+function buildResultView(container, rerender, fixes) {
   const { roster } = built;
   const people = store.people();
   const shifts = store.shifts();
@@ -488,6 +490,7 @@ function buildResultView(container, rerender) {
   // A shortfall must be impossible to miss, so it goes above the schedule.
   return [
     notesBox(roster),
+    editing ? null : gapFixes(roster, people, shifts, fixes),
     ...cards,
     tally(roster, people),
     el('div', { className: 'row' }, actions),

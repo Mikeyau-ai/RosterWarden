@@ -214,6 +214,10 @@ function renderShiftCard(shift, index, total, container) {
     className: 'btn btn-sm', textContent: '↓', disabled: index === total - 1,
     onclick: () => { store.moveShift(shift.id, 1); render(container); },
   });
+  const copyBtn = el('button', {
+    className: 'btn btn-sm', textContent: 'Copy',
+    onclick: () => { store.duplicateShift(shift.id); render(container); },
+  });
   const deleteBtn = el('button', {
     className: 'btn btn-danger btn-sm', textContent: 'Delete',
     onclick: async () => {
@@ -236,6 +240,6 @@ function renderShiftCard(shift, index, total, container) {
       headcountErr,
     ]),
     renderShiftRoles(shift, container),
-    el('div', { className: 'row' }, [upBtn, downBtn, deleteBtn]),
+    el('div', { className: 'row' }, [upBtn, downBtn, copyBtn, deleteBtn]),
   ]);
 }

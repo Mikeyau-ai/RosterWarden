@@ -139,3 +139,21 @@ test('new shifts and people start with no roles, and a role does not default to 
   assert.deepEqual(s.addPerson('Amy').roleIds, []);
   assert.equal(s.addRole('Drums').anyone, false);
 });
+
+test('copying a shift copies its roles and times, and puts the copy right after it', () => {
+  const s = fresh();
+  const nine = s.addShift({ name: '9am', start: '09:00', end: '10:30', headcount: 1 });
+  const last = s.addShift({ name: 'Pack up', headcount: 1 });
+  const drums = s.addRole('Drums');
+  s.setShiftRole(nine.id, drums.id, 2);
+
+  const copy = s.duplicateShift(nine.id);
+  assert.equal(copy.name, '9am (copy)');
+  assert.deepEqual([copy.start, copy.end, copy.headcount], ['09:00', '10:30', 2]);
+  assert.deepEqual(copy.roles, [{ roleId: drums.id, count: 2 }]);
+  assert.deepEqual(s.shifts().map((x) => x.name), ['9am', '9am (copy)', 'Pack up']);
+
+  copy.roles[0].count = 5;
+  assert.equal(nine.roles[0].count, 2, 'changing the copy leaves the original alone');
+  assert.equal(last.name, 'Pack up');
+});

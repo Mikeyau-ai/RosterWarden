@@ -9,8 +9,8 @@
  * else. This lets the roster be nudged in place instead.
  */
 import { store } from '../store.js';
-import { el, copyText, dialog, downloadText } from '../ui.js';
-import { formatDate, toDays, weekdayOf, counts, canDoRole } from '../scheduler.js';
+import { el, copyText, dialog, downloadText, toast } from '../ui.js';
+import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
 } from '../export.js';
@@ -229,6 +229,71 @@ export function tally(roster, people) {
 }
 
 /** The "N things to check" box above a roster, or null when there are none. */
+/**
+ * The roles a built roster left short, with who could fill them if they were
+ * ticked for it: `[{ role, days, missing, candidates }]`. A candidate is an
+ * active person not yet ticked for the role who is free on at least one of the
+ * days it was short. Roles open to anyone are never short for want of a tick.
+ */
+export function roleGaps(roster, people, shifts, roles) {
+  const days = roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))];
+  const found = new Map();   // roleId -> { days: Set, missing, shortDays: [] }
+  for (const day of days) {
+    for (const shift of shifts) {
+      for (const r of shift.roles || []) {
+        const n = roster.assignments.filter(
+          (a) => a.date === day && a.shiftId === shift.id && a.roleId === r.roleId
+        ).length;
+        if (n >= r.count) continue;
+        const f = found.get(r.roleId) || { days: new Set(), missing: 0, shortDays: [] };
+        f.days.add(day); f.missing += r.count - n; f.shortDays.push(day);
+        found.set(r.roleId, f);
+      }
+    }
+  }
+  return [...found].map(([roleId, f]) => ({
+    role: roles.find((r) => r.id === roleId),
+    days: f.days.size,
+    missing: f.missing,
+    candidates: people
+      .filter((p) => p.active && !(p.roleIds || []).includes(roleId) && f.shortDays.some((d) => canWork(p, d)))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  })).filter((g) => g.role && !g.role.anyone);
+}
+
+/**
+ * A card that turns "Drums: only 0 of 1 filled" into a fix: pick someone who
+ * can play it, and they are ticked for the role and the roster is rebuilt.
+ * `rebuild` rebuilds the roster; `openSkills` opens the who-can-do-what grid.
+ */
+export function gapFixes(roster, people, shifts, { rebuild, openSkills }) {
+  const gaps = roleGaps(roster, people, shifts, store.roles());
+  if (gaps.length === 0) return null;
+  const rows = gaps.map((g) => {
+    const label = `${g.role.name}: short on ${g.days} day${g.days === 1 ? '' : 's'}`;
+    if (g.candidates.length === 0) {
+      return el('div', {}, [label, el('div', { className: 'faint', textContent: 'Nobody else is free on those days.' })]);
+    }
+    const pick = el('select', {}, [
+      el('option', { value: '', textContent: `Who else can do ${g.role.name}?` }),
+      ...g.candidates.map((p) => el('option', { value: String(p.id), textContent: p.name })),
+    ]);
+    pick.addEventListener('change', () => {
+      const person = people.find((p) => p.id === Number(pick.value));
+      if (!person) return;
+      store.updatePerson(person.id, { roleIds: [...(person.roleIds || []), g.role.id] });
+      toast(`${person.name} can now do ${g.role.name}`);
+      rebuild();
+    });
+    return el('div', {}, [label, pick]);
+  });
+  return el('div', { className: 'card' }, [
+    el('strong', { textContent: 'Fill the gaps' }),
+    ...rows,
+    el('button', { className: 'btn btn-sm', textContent: 'See who can do what', onclick: openSkills }),
+  ]);
+}
+
 export function notesBox(roster) {
   const n = roster.notes.length;
   if (n === 0) return null;

@@ -61,11 +61,16 @@ function welcome() {
   const nameInput = el('input', {
     type: 'text', placeholder: 'e.g. Church Cafe', 'aria-label': 'Workplace name',
   });
+  const kindSelect = el('select', { 'aria-label': 'Start from' }, [
+    el('option', { value: 'cafe', textContent: 'A cafe or similar (a shift of 2 people)' }),
+    el('option', { value: 'band', textContent: 'A worship team (lead singer, guitar, drums…)' }),
+    el('option', { value: 'blank', textContent: 'A blank start' }),
+  ]);
   const create = (event) => {
     event.preventDefault();
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
-    createOrg(name);
+    createOrg(name, kindSelect.value);
   };
 
   return el('form', { className: 'card', onsubmit: create }, [
@@ -76,6 +81,8 @@ function welcome() {
     ]),
     el('label', { className: 'label', textContent: 'What do you roster for?' }),
     nameInput,
+    el('label', { className: 'label', textContent: 'Start from' }),
+    kindSelect,
     el('button', {
       type: 'submit', className: 'btn btn-primary btn-lg btn-block', textContent: 'Get started',
     }),
@@ -86,9 +93,9 @@ function welcome() {
  * Create an organisation with a starter shift and take the user to People,
  * the next thing a new roster needs (by hand, or from Planning Center).
  */
-function createOrg(name) {
+function createOrg(name, kind = 'cafe') {
   store.addOrg(name);
-  seedDefaults();
+  seedDefaults(kind);
   refreshOrgs();
   show('team', { section: 'people' });
   toast(`${name} created — now add your people`);
@@ -99,8 +106,19 @@ function createOrg(name) {
  * An empty Shifts screen is a dead end; a sensible default means the user can
  * go straight to adding people and press Build.
  */
-function seedDefaults() {
-  store.addShift({ name: 'Cafe', start: '08:00', end: '12:00', headcount: 2 });
+function seedDefaults(kind = 'cafe') {
+  if (kind === 'band') {
+    // The usual band, each part on its own role, ticked per person on Team.
+    const shift = store.addShift({ name: 'Service', start: '09:00', end: '11:00', headcount: 1 });
+    for (const [name, count] of [
+      ['Lead singer', 1], ['Backup singer', 2], ['Acoustic guitar', 1],
+      ['Electric guitar', 1], ['Bass', 1], ['Drums', 1], ['Keys', 1],
+    ]) store.setShiftRole(shift.id, store.addRole(name).id, count);
+  } else if (kind === 'blank') {
+    store.addShift({ name: 'Shift', start: '', end: '', headcount: 1 });
+  } else {
+    store.addShift({ name: 'Cafe', start: '08:00', end: '12:00', headcount: 2 });
+  }
 }
 
 /** Switch the visible view and update the tab bar. */
