@@ -125,6 +125,9 @@ export function canWork(person, iso) {
     return false;
   }
   if ((person.requests || []).includes(iso)) return true;
+  // "Only the 1st and 3rd week of the month": the nth Sunday (or Monday...) of its month.
+  const weeks = person.weeksOfMonth || [];
+  if (weeks.length && !weeks.includes(Math.ceil(Number(iso.slice(8, 10)) / 7))) return false;
   return person.availableWeekdays.includes(weekdayOf(iso));
 }
 
@@ -181,6 +184,10 @@ function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorke
     const rx = (x.requests || []).includes(day) ? 0 : 1;
     const ry = (y.requests || []).includes(day) ? 0 : 1;
     if (rx !== ry) return rx - ry;
+    // Someone who asked to serve less often (`minGapWeeks`) goes behind everyone
+    // whose gap has passed - but is still used if nobody else is left.
+    const cool = (p) => (p.minGapWeeks && toDays(day) - lastWorked.get(p.id) < p.minGapWeeks * 7 ? 1 : 0);
+    if (cool(x) !== cool(y)) return cool(x) - cool(y);
     // Turns taken in recent saved rosters count too, so fairness holds from one roster to the next.
     const wx = worked.get(x.id) + (bias.get(x.id) || 0), wy = worked.get(y.id) + (bias.get(y.id) || 0);
     if (wx !== wy) return wx - wy;
@@ -294,22 +301,41 @@ export function buildRoster({
           .sort((a, b) => a.spare - b.spare || a.order - b.order);
       }
 
-      for (const slot of slots) {
-        const roleOk = (p) => canDoRole(p, slot.roleId, roleById);
-        const pinnedHere = pinned.filter(
-          (a) => a.shiftId === shift.id && (a.roleId ?? null) === slot.roleId
-        ).length;
-        for (let i = pinnedHere; i < slot.count; i++) {
+      // How many places each slot still has, after anything pinned there.
+      const remaining = slots.map((slot) => slot.count - pinned.filter(
+        (a) => a.shiftId === shift.id && (a.roleId ?? null) === slot.roleId
+      ).length);
+
+      /** Put `who` in slot `k` of this shift. */
+      const place = (who, k) => {
+        placedIds.add(who.id);
+        usedToday.add(who.id);
+        worked.set(who.id, worked.get(who.id) + 1);
+        lastWorked.set(who.id, toDays(day));
+        remaining[k] -= 1;
+        roster.assignments.push({
+          date: day, shiftId: shift.id, personId: who.id,
+          ...(slots[k].roleId != null ? { roleId: slots[k].roleId } : {}),
+        });
+      };
+
+      for (let k = 0; k < slots.length; k++) {
+        const roleOk = (p) => canDoRole(p, slots[k].roleId, roleById);
+        while (remaining[k] > 0) {
           const who = pick(day, roll, usedToday, placedIds, incompatible, worked, lastWorked, roleOk, bias);
           if (!who) break;
-          placedIds.add(who.id);
-          usedToday.add(who.id);
-          worked.set(who.id, worked.get(who.id) + 1);
-          lastWorked.set(who.id, toDays(day));
-          roster.assignments.push({
-            date: day, shiftId: shift.id, personId: who.id,
-            ...(slot.roleId != null ? { roleId: slot.roleId } : {}),
-          });
+          place(who, k);
+
+          // People who serve together come along: each partner takes the first
+          // place left on this shift they can do, if they are free and fit.
+          for (const mateId of who.withIds || []) {
+            const mate = roll.find((p) => p.id === mateId);
+            if (!mate || usedToday.has(mate.id) || !canWork(mate, day)) continue;
+            if (mate.maxShifts != null && worked.get(mate.id) >= mate.maxShifts) continue;
+            if ([...(incompatible.get(mate.id) || [])].some((id) => placedIds.has(id))) continue;
+            const t = slots.findIndex((s, j) => remaining[j] > 0 && canDoRole(mate, s.roleId, roleById));
+            if (t >= 0) place(mate, t);
+          }
         }
       }
     }
