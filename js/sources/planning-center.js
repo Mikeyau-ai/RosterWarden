@@ -325,6 +325,25 @@ export async function teamPositions(teamId) {
 }
 
 /**
+ * Who is set up for which position on the team: `[{ personId, position }]`,
+ * one per person per position, with Planning Center's own person id.
+ */
+export async function teamAssignments(teamId) {
+  const { data, included } = await all(
+    `/services/v2/teams/${teamId}/person_team_position_assignments?include=team_position`
+  );
+  const positionName = new Map(
+    included.filter((i) => i.type === 'TeamPosition').map((i) => [i.id, i.attributes.name])
+  );
+  return data
+    .map((a) => ({
+      personId: a.relationships?.person?.data?.id,
+      position: positionName.get(a.relationships?.team_position?.data?.id),
+    }))
+    .filter((a) => a.personId && a.position);
+}
+
+/**
  * "YYYY-MM-DD" for a Planning Center timestamp in a given time zone.
  *
  * Blockouts carry their own `time_zone`; converting in it (rather than the

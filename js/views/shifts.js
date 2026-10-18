@@ -6,7 +6,8 @@
  * shift that matters most (e.g. the one hardest to cover) first.
  */
 import { store } from '../store.js';
-import { el, fill, confirmDialog, promptText, TIME_STEP_SECONDS } from '../ui.js';
+import { el, fill, confirmDialog, promptText, toast, TIME_STEP_SECONDS } from '../ui.js';
+import * as pco from '../sources/planning-center.js';
 
 /** Times a new shift should start with: the organisation's opening hours if set. */
 function defaultTimes() {
@@ -123,7 +124,48 @@ function renderShiftRoles(shift, container) {
     if (roleId) store.setShiftRole(shift.id, roleId, 1);
     render(container);
   });
-  return el('div', {}, [el('label', { className: 'label', textContent: 'Roles' }), ...rows, add]);
+
+  // With a Planning Center team linked, its positions can become this shift's roles.
+  const teamId = store.currentOrg()?.pco?.teamId;
+  const fromPco = teamId ? el('button', {
+    className: 'btn btn-sm', textContent: 'Add positions from Planning Center',
+    onclick: async (e) => {
+      e.target.disabled = true;
+      try {
+        const [names, assignments] = await Promise.all([pco.teamPositions(teamId), pco.teamAssignments(teamId)]);
+        let added = 0;
+        const roleOf = new Map();
+        for (const name of names) {
+          const role = store.addRole(name);
+          roleOf.set(name, role);
+          if (!role.pcoPosition) store.updateRole(role.id, { pcoPosition: name });   // sent back as the same position
+          if (!(shift.roles || []).some((r) => r.roleId === role.id) && !onShift.has(role.id)) {
+            store.setShiftRole(shift.id, role.id, 1);
+            onShift.add(role.id);
+            added++;
+          }
+        }
+        // Tick people for the positions Planning Center has them down for.
+        const byPco = new Map(store.people().map((p) => [p.pcoId, p]));
+        const tickedIds = new Set();
+        for (const { personId, position } of assignments) {
+          const person = byPco.get(personId);
+          const role = roleOf.get(position);
+          if (!person || !role || (person.roleIds || []).includes(role.id)) continue;
+          store.updatePerson(person.id, { roleIds: [...(person.roleIds || []), role.id] });
+          person.roleIds = [...(person.roleIds || []), role.id];
+          tickedIds.add(person.id);
+        }
+        const ticked = tickedIds.size;
+        const parts = [added && `added ${added} role${added === 1 ? '' : 's'}`, ticked && `ticked ${ticked} ${ticked === 1 ? 'person' : 'people'}`].filter(Boolean);
+        toast(parts.length ? parts.join(', ').replace(/^./, (ch) => ch.toUpperCase()) : 'Nothing new to add');
+      } catch (err) {
+        toast(err instanceof pco.PCOError ? err.message : 'Could not reach Planning Center.');
+      }
+      render(container);
+    },
+  }) : null;
+  return el('div', {}, [el('label', { className: 'label', textContent: 'Roles' }), ...rows, add, fromPco]);
 }
 
 /** Build one editable card for a shift. */
