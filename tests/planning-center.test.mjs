@@ -280,3 +280,35 @@ test('a preview counts what would be sent and changes nothing', async () => {
   assert.deepEqual([...preview.unmapped], [2]);
   assert.ok(calls.every((c) => c.method === 'GET'));
 });
+
+test('replies are read back as confirmed, waiting or declined, and nothing is changed', async () => {
+  signIn();
+  routes = (method, url) => {
+    if (url.includes('/plans?')) {
+      return { data: [{ id: 'p1', attributes: { sort_date: '2026-10-11T09:00:00Z' } }], links: {} };
+    }
+    if (method === 'GET') {
+      const member = (id, status) => ({
+        attributes: { team_position_name: 'Barista', status }, relationships: { person: { data: { id } } },
+      });
+      return { data: [member('301', 'C'), member('302', 'D'), member('303', 'U')], links: {} };
+    }
+    throw new Error(`reading replies must only read, got ${method} ${url}`);
+  };
+  const replies = await pco.responsesFor([
+    { date: '2026-10-11', shiftId: 1, personId: 10 },
+    { date: '2026-10-11', shiftId: 1, personId: 11 },
+    { date: '2026-10-11', shiftId: 1, personId: 12 },
+    { date: '2026-10-11', shiftId: 1, personId: 13 },   // not on the plan
+  ], {
+    teamId: '5', serviceTypeId: '9',
+    personPcoId: (id) => ({ 10: '301', 11: '302', 12: '303', 13: '304' })[id],
+    positionFor: () => 'Barista',
+  });
+  assert.deepEqual(replies, {
+    [pco.responseKey({ date: '2026-10-11', shiftId: 1, personId: 10 })]: 'C',
+    [pco.responseKey({ date: '2026-10-11', shiftId: 1, personId: 11 })]: 'D',
+    [pco.responseKey({ date: '2026-10-11', shiftId: 1, personId: 12 })]: 'U',
+  });
+  assert.ok(calls.every((c) => c.method === 'GET'));
+});

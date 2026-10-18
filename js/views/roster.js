@@ -14,7 +14,7 @@ import {
   el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet, collapsible,
 } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, gapFixes, exportButton,
+  editableDayCards, dayCards, tally, notesBox, gapFixes, declinedCard, exportButton,
 } from './roster-parts.js';
 import { show } from '../app.js';
 import * as teamView from './team.js';
@@ -44,6 +44,9 @@ export function openDraft(id) {
 // A name the user typed, held while a set-up sheet is open over the builder
 // (closing it redraws the page) and used once on that redraw.
 let keptName = null;
+
+// Earlier states of the built roster's assignments, newest last, for Undo.
+let undoStack = [];
 
 // Whether the requests/days-off section is expanded, kept across its rebuilds.
 let requestsOpen = true;
@@ -172,12 +175,12 @@ export function render(container) {
   /** Redraw just the result section, without disturbing the form above it. */
   const renderResults = () => {
     fill(resultsBox, built
-      ? buildResultView(container, renderResults, { rebuild: () => onBuild(), openSkills: () => openTeam('skills') })
+      ? buildResultView(container, renderResults, { rebuild: () => onBuild(true), openSkills: () => openTeam('skills') })
       : []);
   };
 
   /** Build the roster from the current form values and show the result. */
-  const onBuild = () => {
+  const onBuild = (keepLocks = false) => {
     errDiv.textContent = '';
     if (picked.size === 0) {
       errDiv.textContent = 'Pick at least one date on the calendar.';
@@ -192,8 +195,12 @@ export function render(container) {
       clashes: store.clashes(),
       dates,
       roles: store.roles(),
+      // Turns in saved rosters count towards who is due next; pinned places are kept on a rebuild.
+      history: store.rosters().filter((r) => !r.draft).flatMap((r) => r.assignments || []),
+      locked: keepLocks && built ? built.roster.assignments.filter((a) => a.locked) : [],
     });
     built = { roster, days: dates };
+    undoStack = [];
     renderResults();
   };
 
@@ -458,6 +465,7 @@ function buildResultView(container, rerender, fixes) {
 
   /** Take a changed list of assignments (an edit or a swap), re-check it and redraw. */
   const change = (next) => {
+    undoStack.push(roster.assignments);
     roster.assignments = next;
     roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
     rerender();
@@ -485,12 +493,25 @@ function buildResultView(container, rerender, fixes) {
       className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
       onclick: () => { editing = !editing; rerender(); },
     }),
-    exportButton(roster, people, shifts),
+    undoStack.length ? el('button', {
+      className: 'btn', textContent: 'Undo',
+      onclick: () => {
+        roster.assignments = undoStack.pop();
+        roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
+        rerender();
+      },
+    }) : null,
+    roster.assignments.some((a) => a.locked) ? el('button', {
+      className: 'btn', textContent: 'Rebuild around locked',
+      onclick: () => fixes.rebuild(),
+    }) : null,
+    exportButton(roster, people, shifts, (replies) => { roster.responses = replies; rerender(); }),
   ];
 
   // A shortfall must be impossible to miss, so it goes above the schedule.
   return [
     notesBox(roster),
+    editing ? null : declinedCard(roster, people, shifts, change),
     editing ? null : gapFixes(roster, people, shifts, fixes),
     collapsible('roster', 'Roster', cards, { className: '' }),
     tally(roster, people),

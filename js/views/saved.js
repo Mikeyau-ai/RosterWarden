@@ -7,7 +7,7 @@ import { store } from '../store.js';
 import { formatDate, auditRoster, toDays, fromDays } from '../scheduler.js';
 import { el, fill, toast, confirmDialog, emptyState } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, exportButton,
+  editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton,
 } from './roster-parts.js';
 import { show } from '../app.js';
 import * as builderView from './roster.js';
@@ -150,6 +150,9 @@ function rollForward(roster) {
   show('new');
 }
 
+// Earlier assignments of the open roster, newest last, for Undo.
+const undo = { id: null, stack: [] };
+
 /** Build the full day-by-day view of one saved roster, plus its actions. */
 function renderOpen(roster, container) {
   const people = store.people();
@@ -162,6 +165,8 @@ function renderOpen(roster, container) {
 
   /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
   const change = (next) => {
+    if (undo.id !== roster.id) { undo.id = roster.id; undo.stack = []; }
+    undo.stack.push(roster.assignments);
     store.updateRoster(roster.id, {
       assignments: next,
       notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
@@ -177,7 +182,21 @@ function renderOpen(roster, container) {
       className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
       onclick: () => { editing = !editing; render(container); },
     }),
-    exportButton(roster, people, shifts),
+    undo.id === roster.id && undo.stack.length ? el('button', {
+      className: 'btn', textContent: 'Undo',
+      onclick: () => {
+        const prev = undo.stack.pop();
+        store.updateRoster(roster.id, {
+          assignments: prev,
+          notes: auditRoster({ ...roster, assignments: prev }, store.people(), store.shifts(), store.roles()),
+        });
+        render(container);
+      },
+    }) : null,
+    exportButton(roster, people, shifts, (replies) => {
+      store.updateRoster(roster.id, { responses: replies });
+      render(container);
+    }),
     el('button', {
       className: 'btn', textContent: 'Next one',
       onclick: () => rollForward(roster),
@@ -199,6 +218,7 @@ function renderOpen(roster, container) {
     back,
     el('h2', { textContent: roster.name }),
     notesBox(roster),
+    editing ? null : declinedCard(roster, people, shifts, change),
     ...cards,
     tally(roster, people),
     el('div', { className: 'row' }, actions),

@@ -319,18 +319,45 @@ function askNotify(link, preview) {
  * normal: a date with no plan, a person not on the team, or a shift with no
  * position.
  */
-export async function sendToPlanningCenter(roster, status = () => {}) {
-  const link = store.currentOrg().pco;
+/** How the current organisation's people, shifts and roles map onto Planning Center. */
+function lookupFor(link) {
   const people = new Map(store.people().map((p) => [p.id, p]));
   const shifts = new Map(store.shifts().map((s) => [s.id, s]));
   const roles = new Map(store.roles().map((r) => [r.id, r]));
-  const lookup = {
-    teamId: link.teamId,
-    serviceTypeId: link.serviceTypeId,
-    personPcoId: (id) => people.get(id)?.pcoId || null,
-    // A role's own position first, else the shift's.
-    positionFor: (id, roleId) => (roleId != null && roles.get(roleId)?.pcoPosition) || shifts.get(id)?.pcoPosition || null,
+  return {
+    people, shifts,
+    lookup: {
+      teamId: link.teamId,
+      serviceTypeId: link.serviceTypeId,
+      personPcoId: (id) => people.get(id)?.pcoId || null,
+      // A role's own position first, else the shift's.
+      positionFor: (id, roleId) => (roleId != null && roles.get(roleId)?.pcoPosition) || shifts.get(id)?.pcoPosition || null,
+    },
   };
+}
+
+/**
+ * Ask Planning Center who has accepted or declined the places sent earlier.
+ * Reads only. Returns `{ [place]: 'C' | 'U' | 'D' }` (see responseKey), or null on failure.
+ */
+export async function checkReplies(roster) {
+  const { lookup } = lookupFor(store.currentOrg().pco);
+  try {
+    const replies = await pco.responsesFor(roster.assignments, lookup);
+    const n = (s) => Object.values(replies).filter((v) => v === s).length;
+    toast(Object.keys(replies).length
+      ? `${n('C')} confirmed, ${n('D')} declined, ${n('U')} waiting`
+      : 'Nobody from this roster is on a plan yet.');
+    return replies;
+  } catch (e) {
+    toast(e instanceof pco.PCOError ? e.message : 'Could not check Planning Center.');
+    return null;
+  }
+}
+
+export async function sendToPlanningCenter(roster, status = () => {}) {
+  const link = store.currentOrg().pco;
+  const { people, shifts, lookup } = lookupFor(link);
   try {
     // Look first, change nothing: show what would happen before asking.
     status('Checking Planning Center…');
