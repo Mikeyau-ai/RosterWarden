@@ -19,6 +19,11 @@ import {
 // Id of the person currently open in the editor, or null when showing the list.
 let editingId = null;
 
+// The list's search box, and "select several" mode with who is ticked.
+let searchText = '';
+let selecting = false;
+let selected = new Set();
+
 // When walking new people through the day-picker one at a time: the ids still
 // to visit and how far through we are. Null when not in the walk-through.
 let stepIds = null;
@@ -126,21 +131,111 @@ function renderList(container) {
     }),
   ]) : null;
 
-  const list = el('div', { className: 'list' }, people.map((p) => {
-    const item = el('button', {
-      type: 'button',
-      className: `item${p.active ? '' : ' inactive'}`,
-      onclick: () => { editingId = p.id; render(container); },
-    }, [
-      el('div', { className: 'item-main' }, [
-        el('div', { className: 'item-title', textContent: p.name }),
-        el('div', { className: 'item-sub', textContent: availabilitySummary(p) }),
-      ]),
-    ]);
-    return item;
-  }));
+  const list = el('div', { className: 'list' });
+  const bar = el('div', { className: 'row-tight', style: 'flex-wrap:wrap' });
 
-  return [header, fromPco, setDaysBtn, list];
+  /** Draw the rows that match the search, with a tick box in select mode. */
+  const drawList = () => {
+    const q = searchText.trim().toLowerCase();
+    const shown = people.filter((p) => !q || p.name.toLowerCase().includes(q));
+    fill(list, shown.length ? shown.map((p) => {
+      const mark = selecting ? el('input', {
+        type: 'checkbox', checked: selected.has(p.id), 'aria-label': `Select ${p.name}`,
+        style: 'pointer-events:none;margin-right:.6rem',
+      }) : null;
+      return el('button', {
+        type: 'button',
+        className: `item${p.active ? '' : ' inactive'}`,
+        onclick: () => {
+          if (!selecting) { editingId = p.id; render(container); return; }
+          if (selected.has(p.id)) selected.delete(p.id); else selected.add(p.id);
+          drawList(); drawBar();
+        },
+      }, [
+        mark,
+        el('div', { className: 'item-main' }, [
+          el('div', { className: 'item-title', textContent: p.name }),
+          el('div', { className: 'item-sub', textContent: availabilitySummary(p) }),
+        ]),
+      ]);
+    }) : el('div', { className: 'muted', textContent: 'Nobody matches that.' }));
+  };
+
+  /** Apply `patch(person)` to everyone ticked, then redraw. */
+  const forSelected = (patch, message) => {
+    for (const id of selected) {
+      const person = store.people().find((p) => p.id === id);
+      if (person) store.updatePerson(id, patch(person));
+    }
+    toast(message);
+    render(container);
+  };
+
+  /** Draw the select-several actions, or the Select button when not selecting. */
+  const drawBar = () => {
+    if (!selecting) {
+      fill(bar, el('button', {
+        className: 'btn btn-sm', textContent: 'Select several',
+        onclick: () => { selecting = true; selected = new Set(); drawBar(); drawList(); },
+      }));
+      return;
+    }
+    const n = selected.size;
+    const need = (fn) => () => (n ? fn() : toast('Tick some people first'));
+    const roles = store.roles().filter((r) => !r.anyone);
+    fill(bar, [
+      el('span', { className: 'faint', textContent: `${n} selected` }),
+      el('button', { className: 'btn btn-sm', textContent: 'All', onclick: () => {
+        const q = searchText.trim().toLowerCase();
+        for (const p of people) if (!q || p.name.toLowerCase().includes(q)) selected.add(p.id);
+        drawList(); drawBar();
+      } }),
+      el('button', { className: 'btn btn-sm', textContent: 'Days…', onclick: need(async () => {
+        let days = [];
+        const ok = await dialog((close) => [
+          el('h2', { textContent: `Days for ${n} ${n === 1 ? 'person' : 'people'}` }),
+          weekdayPicker([], (d) => { days = d; }),
+          el('div', { className: 'modal-actions' }, [
+            el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(null) }),
+            el('button', { className: 'btn btn-primary', textContent: 'Set days', onclick: () => close(true) }),
+          ]),
+        ]);
+        if (ok) forSelected(() => ({ availableWeekdays: days }), 'Days updated');
+      }) }),
+      roles.length ? el('button', { className: 'btn btn-sm', textContent: 'Role…', onclick: need(async () => {
+        const pick = el('select', {}, roles.map((r) => el('option', { value: String(r.id), textContent: r.name })));
+        const choice = await dialog((close) => [
+          el('h2', { textContent: `Role for ${n} ${n === 1 ? 'person' : 'people'}` }),
+          pick,
+          el('div', { className: 'modal-actions' }, [
+            el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(null) }),
+            el('button', { className: 'btn', textContent: 'Remove role', onclick: () => close('remove') }),
+            el('button', { className: 'btn btn-primary', textContent: 'Can do it', onclick: () => close('add') }),
+          ]),
+        ]);
+        if (!choice) return;
+        const id = Number(pick.value);
+        forSelected((p) => ({
+          roleIds: choice === 'add' ? [...new Set([...(p.roleIds || []), id])] : (p.roleIds || []).filter((r) => r !== id),
+        }), 'Roles updated');
+      }) }) : null,
+      el('button', { className: 'btn btn-sm', textContent: 'Pause', onclick: need(() => forSelected(() => ({ active: false }), 'Paused')) }),
+      el('button', { className: 'btn btn-sm', textContent: 'Resume', onclick: need(() => forSelected(() => ({ active: true }), 'Resumed')) }),
+      el('button', { className: 'btn btn-sm', textContent: 'Done', onclick: () => {
+        selecting = false; selected = new Set(); drawBar(); drawList();
+      } }),
+    ]);
+  };
+
+  // A search box once the list is long enough to need one.
+  const search = people.length > 6 ? el('input', {
+    type: 'search', placeholder: 'Search people', value: searchText, 'aria-label': 'Search people',
+    oninput: (e) => { searchText = e.target.value; drawList(); },
+  }) : null;
+
+  drawList();
+  drawBar();
+  return [header, fromPco, setDaysBtn, search, bar, list];
 }
 
 /**
@@ -282,6 +377,9 @@ function renderEditor(id, container) {
   const nameCard = renderNameCard(person);
   const availCard = renderAvailabilityCard(person, container);
   const rolesCard = renderRolesCard(person);
+  const patternCard = renderPatternCard(person);
+  const togetherCard = renderTogetherCard(person, container);
+  const contactCard = renderContactCard(person);
   const wantedCard = renderWantedDatesCard(person, container);
   const maxCard = renderMaxShiftsCard(person);
   const awayCard = renderAwayCard(person, container);
@@ -312,7 +410,8 @@ function renderEditor(id, container) {
   });
 
   return [
-    header, nameCard.node, availCard, rolesCard, wantedCard, maxCard.node, awayCard, clashCard,
+    header, nameCard.node, availCard, patternCard, rolesCard, wantedCard, maxCard.node, awayCard,
+    clashCard, togetherCard, contactCard,
     saveBtn, deleteBtn,
   ];
 }
@@ -384,6 +483,87 @@ function renderRolesCard(person) {
     el('label', { className: 'label', textContent: 'Can do' }),
     ...ticks,
     el('div', { className: 'faint', textContent: 'On a shift made of roles, they are only put on roles ticked here.' }),
+  ]);
+}
+
+/**
+ * Card: how often they serve and which weeks of the month. Both are optional:
+ * "no preference" and "any week" are the defaults.
+ */
+function renderPatternCard(person) {
+  const weeks = new Set(person.weeksOfMonth || []);
+  const chips = [1, 2, 3, 4, 5].map((n) => {
+    const chip = el('button', {
+      type: 'button', className: 'day-chip', textContent: ['1st', '2nd', '3rd', '4th', '5th'][n - 1],
+      'aria-pressed': String(weeks.has(n)),
+      onclick: () => {
+        if (weeks.has(n)) weeks.delete(n); else weeks.add(n);
+        chip.setAttribute('aria-pressed', String(weeks.has(n)));
+        store.updatePerson(person.id, { weeksOfMonth: [...weeks].sort() });
+      },
+    });
+    return chip;
+  });
+  const gap = el('select', {
+    onchange: () => store.updatePerson(person.id, { minGapWeeks: gap.value ? Number(gap.value) : null }),
+  }, [
+    ['', 'As often as needed'], ['2', 'Every 2nd week at most'], ['3', 'Every 3rd week at most'],
+    ['4', 'About once a month'],
+  ].map(([value, text]) => el('option', {
+    value, textContent: text, selected: String(person.minGapWeeks ?? '') === value,
+  })));
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'How often' }),
+    gap,
+    el('label', { className: 'label', style: 'margin-top:.6rem', textContent: 'Only these weeks of the month' }),
+    el('div', { className: 'days' }, chips),
+    el('div', { className: 'faint', textContent: 'Leave the weeks blank for any week. Someone who serves less often is still used if nobody else is free.' }),
+  ]);
+}
+
+/** Card: people this person serves together with (a couple, a parent and child). */
+function renderTogetherCard(person, container) {
+  const others = store.people().filter((p) => p.id !== person.id);
+  const mates = others.filter((p) => (person.withIds || []).includes(p.id));
+  const rows = mates.map((m) => el('div', { className: 'spread' }, [
+    el('div', { textContent: m.name }),
+    el('button', {
+      className: 'btn btn-sm', textContent: 'Remove',
+      onclick: () => { store.setTogether(person.id, m.id, false); render(container); },
+    }),
+  ]));
+  const free = others.filter((p) => !mates.includes(p));
+  let addRow = null;
+  if (free.length) {
+    const select = el('select', {}, free.map((p) => el('option', { value: String(p.id), textContent: p.name })));
+    addRow = el('div', { className: 'row-tight' }, [select, el('button', {
+      className: 'btn btn-sm', textContent: 'Add',
+      onclick: () => { store.setTogether(person.id, Number(select.value), true); render(container); },
+    })]);
+  }
+  return el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'Serves with' }),
+    rows.length ? el('div', { className: 'list' }, rows) : el('div', { className: 'muted', textContent: 'No one in particular.' }),
+    addRow,
+    el('div', { className: 'faint', textContent: 'When one is rostered, the other goes on the same shift if they are free.' }),
+  ]);
+}
+
+/** Card: optional phone, email and pay rate, used to message them and to estimate cost. */
+function renderContactCard(person) {
+  /** A text field that saves on change. */
+  const field = (label, key, type, value) => {
+    const input = el('input', { type, value: value ?? '', inputMode: type === 'tel' ? 'tel' : undefined });
+    input.addEventListener('change', () => {
+      const raw = input.value.trim();
+      store.updatePerson(person.id, { [key]: key === 'hourlyRate' ? (raw === '' ? null : Math.max(0, Number(raw) || 0)) : raw });
+    });
+    return el('div', {}, [el('label', { className: 'label', textContent: label }), input]);
+  };
+  return el('div', { className: 'card' }, [
+    field('Mobile (optional)', 'phone', 'tel', person.phone),
+    field('Email (optional)', 'email', 'email', person.email),
+    field('Pay per hour (optional)', 'hourlyRate', 'number', person.hourlyRate),
   ]);
 }
 

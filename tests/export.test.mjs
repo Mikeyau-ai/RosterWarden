@@ -138,3 +138,27 @@ test("each person's line says their role, and the calendar names it", () => {
   assert.ok(formatPerPerson(bandRoster, people, band, roles).includes('Lead singer'));
   assert.ok(toICS(bandRoster, people, band, new Date(0), roles).includes('Sarah (Lead singer)'));
 });
+
+// ------------------------------------------------- hours and per-person messages --
+import { shiftHours, hoursByPerson, messageFor } from '../js/export.js';
+
+test('a shift\'s hours come from its times, and run past midnight when it ends before it starts', () => {
+  assert.equal(shiftHours({ start: '08:00', end: '12:30' }), 4.5);
+  assert.equal(shiftHours({ start: '22:00', end: '02:00' }), 4);
+  assert.equal(shiftHours({ start: '', end: '' }), 0);
+});
+
+test('hours add up per person across shifts', () => {
+  const hours = hoursByPerson(roster, shifts);
+  assert.equal(hours.get(1), 4, 'Sarah did one 08:00-12:00 Cafe');
+  assert.equal(hours.get(3), 4, 'Rachel did Cafe on the 18th (4h) and Setup (no times, 0h)');
+});
+
+test('a message for one person lists only their own dates', () => {
+  const text = messageFor(roster, people[2], shifts);
+  assert.ok(text.startsWith('Hi Rachel, you\'re on the roster (Roster 11 Oct 2026):'), text);
+  assert.ok(text.includes('Cafe 8:00–12:00'), text);
+  assert.ok(text.includes('Setup'), text);
+  assert.ok(!text.includes('Sarah'));
+  assert.equal(messageFor(roster, { id: 99, name: 'Nobody' }, shifts), null);
+});

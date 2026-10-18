@@ -514,7 +514,7 @@ function buildResultView(container, rerender, fixes) {
     editing ? null : declinedCard(roster, people, shifts, change),
     editing ? null : gapFixes(roster, people, shifts, fixes),
     collapsible('roster', 'Roster', cards, { className: '' }),
-    tally(roster, people),
+    tally(roster, people, shifts),
     el('div', { className: 'row' }, actions),
   ];
 }
