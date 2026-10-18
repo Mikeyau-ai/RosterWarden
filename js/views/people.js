@@ -112,11 +112,11 @@ function renderList(container) {
   const who = `${needDays.length} ${needDays.length === 1 ? 'person' : 'people'}`;
   const setDaysBtn = needDays.length ? el('div', { style: 'margin:.6rem 0', className: 'row-tight' }, [
     el('button', {
-      className: 'btn btn-sm', textContent: `Open days for ${who}`,
+      className: 'btn btn-sm', textContent: `Available any day: ${who}`,
       onclick: () => {
-        // Everyone without days gets the days the workplace is open; narrow down per person after.
-        for (const p of needDays) store.updatePerson(p.id, { availableWeekdays: [...store.openDays()] });
-        toast(`${who} can now work any open day`);
+        // Everyone without days becomes available every day; untick days per person after.
+        for (const p of needDays) store.updatePerson(p.id, { availableWeekdays: [0, 1, 2, 3, 4, 5, 6] });
+        toast(`${who} can now work any day`);
         render(container);
       },
     }),
