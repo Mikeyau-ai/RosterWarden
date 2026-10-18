@@ -643,6 +643,35 @@ export function downloadText(filename, text, type = 'text/plain') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Which collapsible sections the user has opened or closed, by key, so a
+// section keeps its state when the screen redraws around it.
+const foldState = new Map();
+
+/**
+ * A section with a title and a little arrow that hides or shows its body.
+ * `key` names it so the state survives redraws; `open` is its starting state
+ * the first time. `body` is a node or a list of them.
+ */
+export function collapsible(key, title, body, { open = true, className = 'card' } = {}) {
+  const isOpen = foldState.has(key) ? foldState.get(key) : open;
+  const arrow = el('span', { className: 'fold-arrow', 'aria-hidden': 'true' });
+  const head = el('button', { type: 'button', className: 'fold-head' }, [el('strong', { textContent: title }), arrow]);
+  const content = el('div', { className: 'fold-body' }, body);
+  /** Show or hide the body and point the arrow the right way. */
+  const apply = (show) => {
+    content.hidden = !show;
+    head.setAttribute('aria-expanded', String(show));
+    arrow.textContent = show ? '▴' : '▾';
+  };
+  apply(isOpen);
+  head.addEventListener('click', () => {
+    const show = content.hidden;
+    foldState.set(key, show);
+    apply(show);
+  });
+  return el('div', { className }, [head, content]);
+}
+
 /** A standard empty-state block. */
 export function emptyState(title, detail, action) {
   return el('div', { className: 'empty' }, [

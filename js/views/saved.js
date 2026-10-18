@@ -9,7 +9,6 @@ import { el, fill, toast, confirmDialog, emptyState } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, exportButton,
 } from './roster-parts.js';
-import * as planningCenter from './planning-center.js';
 import { show } from '../app.js';
 import * as builderView from './roster.js';
 import * as sync from '../sync.js';
@@ -161,15 +160,17 @@ function renderOpen(roster, container) {
     onclick: () => { openId = null; render(container); },
   });
 
+  /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
+  const change = (next) => {
+    store.updateRoster(roster.id, {
+      assignments: next,
+      notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
+    });
+    render(container);
+  };
   const cards = editing
-    ? editableDayCards(roster, people, shifts, (next) => {
-      store.updateRoster(roster.id, {
-        assignments: next,
-        notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
-      });
-      render(container);
-    })
-    : dayCards(roster, people, shifts);
+    ? editableDayCards(roster, people, shifts, change)
+    : dayCards(roster, people, shifts, change);
 
   const actions = [
     el('button', {
@@ -181,7 +182,6 @@ function renderOpen(roster, container) {
       className: 'btn', textContent: 'Next one',
       onclick: () => rollForward(roster),
     }),
-    planningCenter.canSend() ? planningCenter.sendButton(roster) : null,
     el('button', {
       className: 'btn btn-danger', textContent: 'Delete',
       onclick: async () => {

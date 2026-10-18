@@ -325,6 +325,63 @@ export async function teamPositions(teamId) {
 }
 
 /**
+ * Sort a roster's assignments into what can be sent (the person is linked to
+ * Planning Center and the shift or role has a position) and what can't, with
+ * the people and shifts that explain why.
+ */
+function classify(assignments, lookup) {
+  const unlinked = new Set();
+  const unmapped = new Set();
+  const sendable = [];
+  for (const a of assignments) {
+    const pcoId = lookup.personPcoId(a.personId);
+    const position = lookup.positionFor(a.shiftId, a.roleId ?? null);
+    if (!pcoId) unlinked.add(a.personId);
+    else if (!position) unmapped.add(a.shiftId);
+    else sendable.push({ ...a, pcoId, position });
+  }
+  return { sendable, unlinked, unmapped };
+}
+
+/** A plan's address for the team's members, and who is already on it as "personId|position". */
+async function planMembers(lookup, plan) {
+  const base = `/services/v2/service_types/${lookup.serviceTypeId}/plans/${plan.id}/team_members`;
+  const { data: existing } = await all(`${base}?where[team_id]=${lookup.teamId}&include=person`);
+  const onPlan = new Set(existing.map((m) => (
+    `${m.relationships?.person?.data?.id}|${m.attributes.team_position_name}`
+  )));
+  return { base, onPlan };
+}
+
+/**
+ * What sendRoster would do, without doing it: only reads from Planning Center.
+ * Returns `{ toAdd, already, plans, noPlan, unlinked, unmapped }`, `plans`
+ * being how many plans would gain someone.
+ */
+export async function previewRoster(assignments, lookup) {
+  const { sendable, unlinked, unmapped } = classify(assignments, lookup);
+  const out = { toAdd: 0, already: 0, plans: 0, noPlan: new Set(), unlinked, unmapped };
+  if (sendable.length === 0) return out;
+
+  const dates = [...new Set(sendable.map((a) => a.date))].sort();
+  const plans = await plansBetween(lookup.serviceTypeId, dates[0], dates[dates.length - 1]);
+  for (const date of dates) {
+    const plan = plans.get(date);
+    if (!plan) { out.noPlan.add(date); continue; }
+    const { onPlan } = await planMembers(lookup, plan);
+    const before = out.toAdd;
+    for (const a of sendable.filter((x) => x.date === date)) {
+      const key = `${a.pcoId}|${a.position}`;
+      if (onPlan.has(key)) { out.already += 1; continue; }
+      onPlan.add(key);
+      out.toAdd += 1;
+    }
+    if (out.toAdd > before) out.plans += 1;
+  }
+  return out;
+}
+
+/**
  * Who is set up for which position on the team: `[{ personId, position }]`,
  * one per person per position, with Planning Center's own person id.
  */
@@ -456,14 +513,9 @@ export async function sendRoster(assignments, lookup, { notify = true } = {}, on
   const result = {
     added: 0, already: 0, plans: [], noPlan: new Set(), unlinked: new Set(), unmapped: new Set(),
   };
-  const sendable = [];
-  for (const a of assignments) {
-    const pcoId = lookup.personPcoId(a.personId);
-    const position = lookup.positionFor(a.shiftId, a.roleId ?? null);
-    if (!pcoId) result.unlinked.add(a.personId);
-    else if (!position) result.unmapped.add(a.shiftId);
-    else sendable.push({ ...a, pcoId, position });
-  }
+  const { sendable, unlinked, unmapped } = classify(assignments, lookup);
+  result.unlinked = unlinked;
+  result.unmapped = unmapped;
   if (sendable.length === 0) return result;
 
   const dates = [...new Set(sendable.map((a) => a.date))].sort();
@@ -481,11 +533,7 @@ export async function sendRoster(assignments, lookup, { notify = true } = {}, on
     }
 
     // Who is already on this plan for the team, so a re-send skips them.
-    const base = `/services/v2/service_types/${lookup.serviceTypeId}/plans/${plan.id}/team_members`;
-    const { data: existing } = await all(`${base}?where[team_id]=${lookup.teamId}&include=person`);
-    const onPlan = new Set(existing.map((m) => (
-      `${m.relationships?.person?.data?.id}|${m.attributes.team_position_name}`
-    )));
+    const { base, onPlan } = await planMembers(lookup, plan);
 
     const addedBefore = result.added;
     for (const a of todays) {

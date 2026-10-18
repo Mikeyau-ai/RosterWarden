@@ -251,3 +251,32 @@ test('a rate-limited request waits and retries', async () => {
   assert.deepEqual(await pco.teamPositions('5'), []);
   assert.equal(calls.length, 2);
 });
+
+test('a preview counts what would be sent and changes nothing', async () => {
+  signIn();
+  routes = (method, url) => {
+    if (url.includes('/plans?')) {
+      return { data: [{ id: 'p1', attributes: { sort_date: '2026-10-11T09:00:00Z' } }], links: {} };
+    }
+    if (method === 'GET') {
+      return { data: [{ attributes: { team_position_name: 'Barista' }, relationships: { person: { data: { id: '301' } } } }], links: {} };
+    }
+    throw new Error(`a preview must only read, got ${method} ${url}`);
+  };
+  const preview = await pco.previewRoster([
+    { date: '2026-10-11', shiftId: 1, personId: 10 },   // Amy, already there
+    { date: '2026-10-11', shiftId: 1, personId: 11 },   // Bob, would be added
+    { date: '2026-10-11', shiftId: 2, personId: 11 },   // shift 2 has no position
+    { date: '2026-10-11', shiftId: 1, personId: 12 },   // Cat, not on the team
+    { date: '2026-10-18', shiftId: 1, personId: 11 },   // no plan that day
+  ], {
+    teamId: '5', serviceTypeId: '9',
+    personPcoId: (id) => ({ 10: '301', 11: '302' })[id] || null,
+    positionFor: (id) => (id === 1 ? 'Barista' : null),
+  });
+  assert.deepEqual([preview.toAdd, preview.already, preview.plans], [1, 1, 1]);
+  assert.deepEqual([...preview.noPlan], ['2026-10-18']);
+  assert.deepEqual([...preview.unlinked], [12]);
+  assert.deepEqual([...preview.unmapped], [2]);
+  assert.ok(calls.every((c) => c.method === 'GET'));
+});
