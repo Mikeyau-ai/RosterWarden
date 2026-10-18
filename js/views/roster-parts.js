@@ -10,6 +10,7 @@
  */
 import { store } from '../store.js';
 import { el, copyText, dialog, downloadText, toast, collapsible } from '../ui.js';
+import { canSend, sendToPlanningCenter } from './planning-center.js';
 import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
@@ -474,6 +475,12 @@ function openExport(roster, people, shifts) {
       row('Spreadsheet', 'A .csv file for Excel or Google Sheets.', [
         fileButton('Download', `${base}.csv`, () => toCSV(roster, people, shifts, store.roles()), 'text/csv'),
       ]),
+      canSend() ? row('Planning Center', 'Add everyone to the plans. It shows what will happen first.', [
+        el('button', {
+          className: 'btn btn-sm', textContent: 'Send…',
+          onclick: () => { close(); sendToPlanningCenter(roster, (text) => { if (text) toast(text); }); },
+        }),
+      ]) : null,
     ]),
     el('div', { className: 'modal-actions' }, [
       el('button', { className: 'btn btn-primary', textContent: 'Done', onclick: () => close() }),

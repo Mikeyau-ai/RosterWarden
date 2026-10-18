@@ -263,9 +263,33 @@ function positionsBlock(link, fail) {
  * cancelled. Asked every time, because it depends on the roster - a draft
  * roster to check with the team first is a quiet one.
  */
-function askNotify(link) {
+function askNotify(link, preview) {
+  /** The lines of what is about to happen, from the read-only preview. */
+  const lines = [
+    `${preview.toAdd} will be added across ${preview.plans} plan${preview.plans === 1 ? '' : 's'}`
+      + (preview.already ? `, ${preview.already} already there` : '') + '.',
+    preview.noPlan.size
+      ? `No plan yet on ${[...preview.noPlan].map((d) => formatDate(d, { withWeekday: false })).join(', ')}.` : null,
+    preview.unlinked.size
+      ? `Not on the Planning Center team: ${[...preview.unlinked].map((id) => preview.people.get(id)?.name || '(removed)').join(', ')}.` : null,
+    preview.unmapped.size
+      ? `No position picked for: ${[...preview.unmapped].map((id) => preview.shifts.get(id)?.name || '(removed)').join(', ')}.` : null,
+  ].filter(Boolean);
+  const summary = el('ul', { className: 'install-steps' }, lines.map((l) => el('li', { textContent: l })));
+
+  // Nothing to add: say why and stop, rather than offering a send that does nothing.
+  if (preview.toAdd === 0) {
+    return dialog((close) => [
+      el('h2', { textContent: 'Nothing to send' }),
+      summary,
+      el('div', { className: 'modal-actions' }, [
+        el('button', { className: 'btn btn-primary', textContent: 'OK', onclick: () => close(null) }),
+      ]),
+    ]);
+  }
   return dialog((close) => [
     el('h2', { textContent: 'Send to Planning Center' }),
+    summary,
     el('p', {
       className: 'muted',
       textContent: `Adds everyone to the ${link.teamName} team in the matching `
@@ -295,34 +319,35 @@ function askNotify(link) {
  * normal: a date with no plan, a person not on the team, or a shift with no
  * position.
  */
-export function sendButton(roster) {
-  const btn = el('button', { className: 'btn', textContent: 'Send to Planning Center' });
-  btn.addEventListener('click', async () => {
-    const link = store.currentOrg().pco;
-    const notify = await askNotify(link);
+export async function sendToPlanningCenter(roster, status = () => {}) {
+  const link = store.currentOrg().pco;
+  const people = new Map(store.people().map((p) => [p.id, p]));
+  const shifts = new Map(store.shifts().map((s) => [s.id, s]));
+  const roles = new Map(store.roles().map((r) => [r.id, r]));
+  const lookup = {
+    teamId: link.teamId,
+    serviceTypeId: link.serviceTypeId,
+    personPcoId: (id) => people.get(id)?.pcoId || null,
+    // A role's own position first, else the shift's.
+    positionFor: (id, roleId) => (roleId != null && roles.get(roleId)?.pcoPosition) || shifts.get(id)?.pcoPosition || null,
+  };
+  try {
+    // Look first, change nothing: show what would happen before asking.
+    status('Checking Planning Center…');
+    const preview = await pco.previewRoster(roster.assignments, lookup);
+    preview.people = people;
+    preview.shifts = shifts;
+    const notify = await askNotify(link, preview);
     if (notify === null) return;
 
-    btn.disabled = true;
-    const people = new Map(store.people().map((p) => [p.id, p]));
-    const shifts = new Map(store.shifts().map((s) => [s.id, s]));
-    const roles = new Map(store.roles().map((r) => [r.id, r]));
-    try {
-      const result = await pco.sendRoster(roster.assignments, {
-        teamId: link.teamId,
-        serviceTypeId: link.serviceTypeId,
-        personPcoId: (id) => people.get(id)?.pcoId || null,
-        // A role's own position first, else the shift's.
-        positionFor: (id, roleId) => (roleId != null && roles.get(roleId)?.pcoPosition) || shifts.get(id)?.pcoPosition || null,
-      }, { notify }, (done, total) => { btn.textContent = `Sending ${done} of ${total}…`; });
-      showSendResult(result, people, shifts, notify);
-    } catch (e) {
-      toast(e instanceof pco.PCOError ? e.message : 'Sending to Planning Center failed.');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Send to Planning Center';
-    }
-  });
-  return btn;
+    const result = await pco.sendRoster(roster.assignments, lookup, { notify },
+      (done, total) => status(`Sending ${done} of ${total}…`));
+    showSendResult(result, people, shifts, notify);
+  } catch (e) {
+    toast(e instanceof pco.PCOError ? e.message : 'Sending to Planning Center failed.');
+  } finally {
+    status(null);
+  }
 }
 
 /**
