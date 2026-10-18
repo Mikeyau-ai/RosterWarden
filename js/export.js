@@ -30,6 +30,52 @@ export function shiftTimes(shift) {
 }
 
 /** "Sun 11 Oct" - the short date used in messages, where the year is noise. */
+/**
+ * Hours in a shift, from its start and end times; a shift that ends at or
+ * before it starts runs past midnight. Zero when it has no times.
+ */
+export function shiftHours(shift) {
+  if (!shift?.start || !shift?.end) return 0;
+  const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  let span = minutes(shift.end) - minutes(shift.start);
+  if (span <= 0) span += 24 * 60;
+  return span / 60;
+}
+
+/** Hours rostered per person, as a Map of person id to hours. */
+export function hoursByPerson(roster, shifts) {
+  const hours = new Map(shifts.map((s) => [s.id, shiftHours(s)]));
+  const out = new Map();
+  for (const a of roster.assignments) {
+    out.set(a.personId, (out.get(a.personId) || 0) + (hours.get(a.shiftId) || 0));
+  }
+  return out;
+}
+
+/**
+ * A message for one person: just their own dates, ready to text or email.
+ * Null when they are not on the roster.
+ */
+export function messageFor(roster, person, shifts, roles = []) {
+  const shiftOf = new Map(shifts.map((s) => [s.id, s]));
+  const roleNames = new Map(roles.map((r) => [r.id, r.name]));
+  const mine = roster.assignments
+    .filter((a) => a.personId === person.id)
+    .sort((x, y) => x.date.localeCompare(y.date));
+  if (mine.length === 0) return null;
+
+  const lines = mine.map((a) => {
+    const shift = shiftOf.get(a.shiftId);
+    const times = shiftTimes(shift);
+    const detail = [
+      shift ? [shift.name, times].filter(Boolean).join(' ') : 'removed shift',
+      a.roleId != null ? (roleNames.get(a.roleId) || 'removed role') : null,
+    ].filter(Boolean).join(', ');
+    return `• ${shortDate(a.date)}: ${detail}`;
+  });
+  return `Hi ${person.name.split(' ')[0]}, you're on the roster (${roster.name}):\n${lines.join('\n')}`;
+}
+
 function shortDate(iso) {
   return `${weekdayName(iso)} ${formatDate(iso, { withWeekday: false }).replace(/ \d{4}$/, '').replace(/^0/, '')}`;
 }

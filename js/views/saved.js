@@ -220,7 +220,7 @@ function renderOpen(roster, container) {
     notesBox(roster),
     editing ? null : declinedCard(roster, people, shifts, change),
     ...cards,
-    tally(roster, people),
+    tally(roster, people, shifts),
     el('div', { className: 'row' }, actions),
   ];
 }

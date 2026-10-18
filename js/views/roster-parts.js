@@ -15,6 +15,7 @@ import { responseKey } from '../sources/planning-center.js';
 import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
+  hoursByPerson, messageFor,
 } from '../export.js';
 
 /**
@@ -329,15 +330,61 @@ export function dayCards(roster, people, shifts, apply = null) {
 }
 
 /** "Who's on how much": one chip per person, busiest first. */
-export function tally(roster, people) {
+export function tally(roster, people, shifts = []) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
+  const hours = hoursByPerson(roster, shifts);
   const entries = [...counts(roster).entries()]
-    .map(([id, n]) => [nameOf.get(id) || '(removed)', n])
+    .map(([id, n]) => [nameOf.get(id) || '(removed)', n, hours.get(id) || 0, id])
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
-  return el('div', { className: 'tally' }, entries.map(([name, n]) => (
-    el('span', { className: 'chip' }, [`${name} `, el('b', { textContent: String(n) })])
-  )));
+  // Hours only when the shifts have times; an estimated pay total only when someone has a rate.
+  const fmt = (h) => `${Math.round(h * 10) / 10}h`;
+  const chips = entries.map(([name, n, h]) => (
+    el('span', { className: 'chip' }, [`${name} `, el('b', { textContent: String(n) }), h ? ` · ${fmt(h)}` : ''])
+  ));
+  const cost = people.reduce((sum, p) => sum + (p.hourlyRate ? (hours.get(p.id) || 0) * p.hourlyRate : 0), 0);
+  return el('div', {}, [
+    el('div', { className: 'tally' }, chips),
+    cost ? el('div', { className: 'faint', textContent: `Estimated pay: $${cost.toFixed(2)} for people with a pay rate set` }) : null,
+  ]);
+}
+
+/**
+ * A list of everyone on the roster with their own message, to text, email or
+ * share one by one. People with a mobile or email saved get a button that opens
+ * the phone's messages or mail with the message filled in.
+ */
+function openMessages(roster, people, shifts) {
+  const roles = store.roles();
+  const rows = people
+    .map((person) => ({ person, text: messageFor(roster, person, shifts, roles) }))
+    .filter((x) => x.text)
+    .sort((a, b) => a.person.name.localeCompare(b.person.name))
+    .map(({ person, text }) => {
+      const link = (label, href) => el('a', { className: 'btn btn-sm', href, textContent: label });
+      return el('div', { className: 'export-row' }, [
+        el('div', { className: 'item-main' }, [
+          el('div', { className: 'item-title', textContent: person.name }),
+          el('div', { className: 'item-sub', textContent: text.split('\n').slice(1).join(' ').replace(/• /g, '') }),
+        ]),
+        el('div', { className: 'row-tight' }, [
+          person.phone ? link('Text', `sms:${person.phone}?&body=${encodeURIComponent(text)}`) : null,
+          person.email ? link('Email', `mailto:${person.email}?subject=${encodeURIComponent(roster.name)}&body=${encodeURIComponent(text)}`) : null,
+          el('button', {
+            className: 'btn btn-sm', textContent: navigator.share ? 'Share' : 'Copy',
+            onclick: () => (navigator.share ? shareText(roster.name, text) : copyText(text)),
+          }),
+        ]),
+      ]);
+    });
+  return dialog((close) => [
+    el('h2', { textContent: 'Message each person' }),
+    rows.length ? el('div', { className: 'list' }, rows) : el('div', { className: 'muted', textContent: 'Nobody is on this roster yet.' }),
+    el('div', { className: 'faint', textContent: 'Add a mobile or email on a person\'s page to get a Text or Email button.' }),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn btn-primary', textContent: 'Done', onclick: () => close() }),
+    ]),
+  ]);
 }
 
 /** The "N things to check" box above a roster, or null when there are none. */
@@ -495,6 +542,12 @@ function openExport(roster, people, shifts, onReplies) {
         textButtons(() => formatMessage(roster, people, shifts, store.roles()))),
       row("Each person's shifts", 'One line per person, to message people one by one.',
         textButtons(() => formatPerPerson(roster, people, shifts, store.roles()))),
+      row('Message each person', 'Their own dates, to text, email or share one by one.', [
+        el('button', {
+          className: 'btn btn-sm', textContent: 'Open',
+          onclick: () => { close(); openMessages(roster, people, shifts); },
+        }),
+      ]),
       row('Print or PDF', 'A clean page for the noticeboard. Choose "Save as PDF" to email it.', [
         el('button', {
           className: 'btn btn-sm', textContent: 'Print',
