@@ -9,7 +9,7 @@
  * else. This lets the roster be nudged in place instead.
  */
 import { store } from '../store.js';
-import { el, copyText, dialog, downloadText, toast } from '../ui.js';
+import { el, copyText, dialog, downloadText, toast, collapsible } from '../ui.js';
 import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
@@ -162,16 +162,86 @@ export function editableDayCards(roster, people, shifts, apply) {
 }
 
 /**
+ * Offer a replacement for one person on a built roster: anyone free that day
+ * who can do the role, or a swap with someone on another place the same day.
+ * Choosing one applies the change through `apply`; "Take off" just removes them.
+ */
+async function pickReplacement(roster, people, shifts, assignment, roleById, apply) {
+  const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
+  const shiftOf = (id) => shifts.find((s) => s.id === id)?.name || '(removed)';
+  const roleLabel = (a) => (a.roleId != null ? `, ${roleById.get(a.roleId)?.name || 'removed role'}` : '');
+  const day = assignment.date;
+
+  // Free people who can do this place.
+  const free = candidatesFor(roster, people, day)
+    .filter((p) => canDoRole(p, assignment.roleId ?? null, roleById));
+  // Others on the same day, if each can do the other's place.
+  const swaps = roster.assignments.filter((b) => {
+    if (b === assignment || b.date !== day || b.personId === assignment.personId) return false;
+    const pa = people.find((p) => p.id === assignment.personId);
+    const pb = people.find((p) => p.id === b.personId);
+    return pa && pb && canDoRole(pb, assignment.roleId ?? null, roleById) && canDoRole(pa, b.roleId ?? null, roleById);
+  });
+
+  const choice = await dialog((close) => {
+    const option = (label, sub, next) => el('button', {
+      type: 'button', className: 'item', onclick: () => close({ next }),
+    }, [el('div', { className: 'item-main' }, [
+      el('div', { className: 'item-title', textContent: label }),
+      sub ? el('div', { className: 'item-sub', textContent: sub }) : null,
+    ])]);
+    return [
+      el('h2', { textContent: nameOf(assignment.personId) }),
+      el('div', { className: 'faint', textContent: `${formatDate(day)} · ${shiftOf(assignment.shiftId)}${roleLabel(assignment)}` }),
+      free.length ? el('label', { className: 'label', textContent: 'Replace with' }) : null,
+      el('div', { className: 'list' }, free.map((p) => option(
+        p.name,
+        p.availableWeekdays.includes(weekdayOf(day)) ? null : 'usually off this day',
+        roster.assignments.map((a) => (a === assignment ? { ...a, personId: p.id } : a)),
+      ))),
+      swaps.length ? el('label', { className: 'label', textContent: 'Swap with' }) : null,
+      el('div', { className: 'list' }, swaps.map((b) => option(
+        nameOf(b.personId), `${shiftOf(b.shiftId)}${roleLabel(b)}`,
+        roster.assignments.map((a) => {
+          if (a === assignment) return { ...a, personId: b.personId };
+          if (a === b) return { ...a, personId: assignment.personId };
+          return a;
+        }),
+      ))),
+      !free.length && !swaps.length ? el('div', { className: 'muted', textContent: 'Nobody else is free that day.' }) : null,
+      el('div', { className: 'modal-actions' }, [
+        el('button', {
+          className: 'btn btn-danger', textContent: 'Take off',
+          onclick: () => close({ next: roster.assignments.filter((a) => a !== assignment) }),
+        }),
+        el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(null) }),
+      ]),
+    ];
+  });
+  if (choice) apply(choice.next);
+}
+
+/**
  * Read-only day cards: one per date, one row per shift.
  *
  * Every current shift is shown on every day, so a shift nobody could take
  * reads "Nobody available" rather than silently vanishing. A shift deleted
  * since the roster was saved still shows its people, last, as "(removed)".
  */
-export function dayCards(roster, people, shifts) {
+export function dayCards(roster, people, shifts, apply = null) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
   const known = new Set(shifts.map((s) => s.id));
-  const byDay = new Map(rosterLines(roster, people, shifts, store.roles()).map((l) => [l.date, l]));
+  const roles = store.roles();
+  const roleById = new Map(roles.map((r) => [r.id, r]));
+
+  /** The people on a place, as names - buttons that offer a swap when `apply` is given. */
+  const nameNodes = (list) => list.flatMap((a, i) => {
+    const name = nameOf.get(a.personId) || '(removed)';
+    return [i ? ', ' : null, apply ? el('button', {
+      type: 'button', className: 'name-btn', textContent: name,
+      onclick: () => pickReplacement(roster, people, shifts, a, roleById, apply),
+    }) : name];
+  });
 
   return rosterDays(roster).map((day) => {
     const todays = roster.assignments.filter((a) => a.date === day);
@@ -180,32 +250,41 @@ export function dayCards(roster, people, shifts) {
     const rows = [...shifts, ...extraIds.map((id) => ({ id, name: '(removed)', headcount: 0 }))]
       .map((shift) => {
         // A shift made of roles: a line per role, flagged when it is short.
+        const here = todays.filter((a) => a.shiftId === shift.id);
         if (shift.roles?.length) {
-          const groups = byDay.get(day)?.shifts.find((s) => s.shift.id === shift.id)?.groups || [];
+          const listed = new Set(shift.roles.map((r) => r.roleId));
+          const places = shift.roles.map((r) => ({
+            label: roleById.get(r.roleId)?.name || '(removed role)', count: r.count,
+            mine: here.filter((a) => a.roleId === r.roleId),
+          }));
+          const strays = here.filter((a) => !listed.has(a.roleId ?? null));
+          if (strays.length) places.push({ label: 'Others', count: 0, mine: strays });
           return el('div', { className: 'day-shift' }, [
             el('span', { className: 'sname', textContent: shift.name }),
-            el('div', {}, groups.map((g) => el('div', {
-              className: g.short ? 'swho gap' : 'swho',
-              textContent: `${g.role || 'Others'}: ${g.names.join(', ') || 'nobody'}${g.short && g.names.length ? ` (needs ${g.short} more)` : ''}`,
-            }))),
+            el('div', {}, places.map((p) => {
+              const short = Math.max(0, p.count - p.mine.length);
+              return el('div', { className: short ? 'swho gap' : 'swho' }, [
+                `${p.label}: `,
+                ...(p.mine.length ? nameNodes(p.mine) : ['nobody']),
+                short && p.mine.length ? ` (needs ${short} more)` : null,
+              ]);
+            })),
           ]);
         }
-        const names = todays
-          .filter((a) => a.shiftId === shift.id)
-          .map((a) => nameOf.get(a.personId) || '(removed)');
 
-        let who = names.join(', ');
         let gap = false;
-        if (names.length === 0) {
-          who = 'Nobody available';
+        let tail = null;
+        if (here.length === 0) {
           gap = true;
-        } else if (names.length < shift.headcount) {
-          who += ` (needs ${shift.headcount - names.length} more)`;
+        } else if (here.length < shift.headcount) {
+          tail = ` (needs ${shift.headcount - here.length} more)`;
           gap = true;
         }
         return el('div', { className: 'day-shift' }, [
           el('span', { className: 'sname', textContent: shift.name }),
-          el('span', { className: gap ? 'swho gap' : 'swho', textContent: who }),
+          el('span', { className: gap ? 'swho gap' : 'swho' }, [
+            ...(here.length ? nameNodes(here) : ['Nobody available']), tail,
+          ]),
         ]);
       });
 
@@ -294,13 +373,37 @@ export function gapFixes(roster, people, shifts, { rebuild, openSkills }) {
   ]);
 }
 
+/**
+ * The notes as display lines: every "X asked for <date> but could not be
+ * fitted in." for one person becomes a single line listing their dates.
+ */
+function groupNotes(notes) {
+  const out = [];
+  const askers = new Map();   // name -> the line object holding their dates
+  for (const note of notes) {
+    const m = /^(.+) asked for (.+) but could not be fitted in\.$/.exec(note);
+    if (!m) { out.push(note); continue; }
+    if (!askers.has(m[1])) {
+      const line = { name: m[1], dates: [] };
+      askers.set(m[1], line);
+      out.push(line);
+    }
+    askers.get(m[1]).dates.push(m[2].replace(/ \d{4}$/, ''));
+  }
+  return out.map((x) => (typeof x === 'string' ? x
+    : `${x.name} asked for ${x.dates.join(', ')} but could not be fitted in.`));
+}
+
+/** The things to check, folded away until opened so a long list doesn't push the roster off screen. */
 export function notesBox(roster) {
-  const n = roster.notes.length;
-  if (n === 0) return null;
-  return el('div', { className: 'notice bad' }, [
-    el('strong', { textContent: `${n} thing${n === 1 ? '' : 's'} to check` }),
-    el('ul', {}, roster.notes.map((note) => el('li', { textContent: note }))),
-  ]);
+  if (roster.notes.length === 0) return null;
+  const lines = groupNotes(roster.notes);
+  const n = lines.length;
+  return collapsible(
+    'notes', `${n} thing${n === 1 ? '' : 's'} to check`,
+    el('ul', {}, lines.map((line) => el('li', { textContent: line }))),
+    { open: false, className: 'notice bad' },
+  );
 }
 
 /** The Share / export button for a roster; opens the export menu. */

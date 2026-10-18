@@ -11,7 +11,7 @@ import {
 } from '../scheduler.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
-  el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet,
+  el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet, collapsible,
 } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, gapFixes, exportButton,
@@ -46,7 +46,7 @@ export function openDraft(id) {
 let keptName = null;
 
 // Whether the requests/days-off section is expanded, kept across its rebuilds.
-let requestsOpen = false;
+let requestsOpen = true;
 
 // Whether the built roster is in manual-edit mode. Kept across the result
 // section's own re-renders, reset on a full page render (leaving/returning).
@@ -271,8 +271,7 @@ export function render(container) {
   const formCard = el('div', { className: 'card' }, [
     el('div', {}, [el('label', { className: 'label', textContent: 'Roster name' }), nameInput]),
     el('div', {}, [
-      el('label', { className: 'label', textContent: 'Dates to roster' }),
-      calendarWrap,
+      collapsible('dates', 'Dates to roster', calendarWrap, { className: '' }),
       el('div', { className: 'spread', style: 'margin-top:.6rem' }, [summary, clearBtn]),
     ]),
   ]);
@@ -457,13 +456,15 @@ function buildResultView(container, rerender, fixes) {
   const people = store.people();
   const shifts = store.shifts();
 
+  /** Take a changed list of assignments (an edit or a swap), re-check it and redraw. */
+  const change = (next) => {
+    roster.assignments = next;
+    roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
+    rerender();
+  };
   const cards = editing
-    ? editableDayCards(roster, people, shifts, (next) => {
-      roster.assignments = next;
-      roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
-      rerender();
-    })
-    : dayCards(roster, people, shifts);
+    ? editableDayCards(roster, people, shifts, change)
+    : dayCards(roster, people, shifts, change);
 
   const actions = [
     el('button', {
@@ -491,7 +492,7 @@ function buildResultView(container, rerender, fixes) {
   return [
     notesBox(roster),
     editing ? null : gapFixes(roster, people, shifts, fixes),
-    ...cards,
+    collapsible('roster', 'Roster', cards, { className: '' }),
     tally(roster, people),
     el('div', { className: 'row' }, actions),
   ];

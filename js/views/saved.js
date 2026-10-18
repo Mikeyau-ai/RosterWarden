@@ -161,15 +161,17 @@ function renderOpen(roster, container) {
     onclick: () => { openId = null; render(container); },
   });
 
+  /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
+  const change = (next) => {
+    store.updateRoster(roster.id, {
+      assignments: next,
+      notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
+    });
+    render(container);
+  };
   const cards = editing
-    ? editableDayCards(roster, people, shifts, (next) => {
-      store.updateRoster(roster.id, {
-        assignments: next,
-        notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
-      });
-      render(container);
-    })
-    : dayCards(roster, people, shifts);
+    ? editableDayCards(roster, people, shifts, change)
+    : dayCards(roster, people, shifts, change);
 
   const actions = [
     el('button', {
