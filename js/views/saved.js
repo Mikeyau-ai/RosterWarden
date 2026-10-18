@@ -4,7 +4,7 @@
  * the People screen - there is no side-by-side layout on a phone.
  */
 import { store } from '../store.js';
-import { formatDate, auditRoster } from '../scheduler.js';
+import { formatDate, auditRoster, toDays, fromDays } from '../scheduler.js';
 import { el, fill, toast, confirmDialog, emptyState } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, exportButton,
@@ -136,6 +136,21 @@ function draftRow(r) {
   ]);
 }
 
+/**
+ * Start the next roster from this one: the same days of the week, moved on by
+ * whole weeks past its last day, as a draft in the builder to check and build.
+ */
+function rollForward(roster) {
+  const days = [...(roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))])].sort();
+  if (days.length === 0) return;
+  const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
+  const step = Math.ceil(span / 7) * 7;
+  const dates = days.map((d) => fromDays(toDays(d) + step));
+  const draft = store.saveDraft({ name: `Roster ${formatDate(dates[0], { withWeekday: false })}`, dates });
+  builderView.openDraft(draft.id);
+  show('new');
+}
+
 /** Build the full day-by-day view of one saved roster, plus its actions. */
 function renderOpen(roster, container) {
   const people = store.people();
@@ -162,6 +177,10 @@ function renderOpen(roster, container) {
       onclick: () => { editing = !editing; render(container); },
     }),
     exportButton(roster, people, shifts),
+    el('button', {
+      className: 'btn', textContent: 'Next one',
+      onclick: () => rollForward(roster),
+    }),
     planningCenter.canSend() ? planningCenter.sendButton(roster) : null,
     el('button', {
       className: 'btn btn-danger', textContent: 'Delete',

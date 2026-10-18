@@ -2,7 +2,7 @@
  * Settings: a hub for everything that isn't building a roster.
  *
  * Three groups, the way InvoiceWarden lays its settings out: your workplace
- * (people, shifts, name and opening hours), connections to other systems
+ * (name and opening hours; people and shifts are on the Team tab), connections to other systems
  * (Planning Center, AI assist), and the app itself (sync and backup, install,
  * about). There is no appearance setting: RosterWarden is dark only.
  */
@@ -14,8 +14,6 @@ import {
   TIME_STEP_SECONDS,
 } from '../ui.js';
 import { show, refreshOrgs } from '../app.js';
-import * as peopleView from './people.js';
-import * as shiftsView from './shifts.js';
 import * as planningCenter from './planning-center.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
 import * as sync from '../sync.js';
@@ -31,10 +29,8 @@ let section = null;
 /** The menu, grouped so setting the place up is separated from app settings. */
 const MENU = [
   {
-    group: 'Your workplace',
+    group: 'Your workplace',   // people and shifts have their own Team tab
     items: [
-      { id: 'people', label: 'People', hint: 'Who you roster, and the days each can work' },
-      { id: 'shifts', label: 'Shifts', hint: 'The blocks of work a rostered day is made of' },
       { id: 'workplace', label: 'Name and opening hours', hint: 'The days you trade, rename or delete' },
     ],
   },
@@ -67,7 +63,7 @@ const LEGACY_SECTIONS = {
 };
 
 /** Sections that describe an organisation, so need one to exist first. */
-const NEEDS_ORG = ['people', 'shifts', 'workplace'];
+const NEEDS_ORG = ['workplace'];
 
 /** Open Settings at a particular sub-screen, or at the menu when given null. */
 export function openSection(name) {
@@ -89,8 +85,8 @@ export function render(container) {
   });
   const header = el('div', { className: 'row-tight' }, [backBtn]);
 
-  // Without this guard the people/shifts editors would happily write records
-  // against a null organisation that nothing could ever show again.
+  // Without this guard the workplace card would edit an organisation that
+  // does not exist.
   if (NEEDS_ORG.includes(section) && !store.currentOrg()) {
     fill(container, [
       header,
@@ -100,15 +96,6 @@ export function render(container) {
         textContent: 'Create an organisation first — use the dropdown at the top of the screen.',
       }),
     ]);
-    return;
-  }
-
-  // People and Shifts are full editors with their own internal navigation, so
-  // they render into a nested element and keep the back bar above them.
-  if (section === 'people' || section === 'shifts') {
-    const sub = el('div');
-    fill(container, [header, sub]);
-    (section === 'people' ? peopleView : shiftsView).render(sub);
     return;
   }
 

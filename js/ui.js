@@ -89,6 +89,35 @@ export function dialog(render) {
   });
 }
 
+/**
+ * Open a full-screen sheet over the current screen, with a back button, and
+ * fill it with `build(body)`. Unlike dialog() it can hold screens that open
+ * dialogs of their own (editing a person asks for confirmation, and so on).
+ * `onClose` runs when it closes, so the screen underneath can refresh.
+ */
+export function openSheet(title, build, onClose = () => {}) {
+  closeSheet();
+  const body = el('div', { className: 'sheet-body' });
+  const sheet = el('div', { className: 'sheet', id: 'sheet', role: 'dialog', 'aria-label': title }, [
+    el('div', { className: 'sheet-bar' }, [
+      el('button', { className: 'btn btn-sm', textContent: '← Back', onclick: () => closeSheet() }),
+      el('strong', { textContent: title }),
+    ]),
+    body,
+  ]);
+  sheet.onClose = onClose;
+  document.body.append(sheet);
+  build(body);
+}
+
+/** Close the open sheet, if any, and let the screen beneath refresh itself. */
+export function closeSheet() {
+  const sheet = document.getElementById('sheet');
+  if (!sheet) return;
+  sheet.remove();
+  sheet.onClose();
+}
+
 /** Ask for a single line of text. Resolves to the trimmed string, or null. */
 export function promptText(title, label, initial = '') {
   return dialog((close) => {

@@ -286,6 +286,26 @@ export const store = {
     return shift;
   },
 
+  /**
+   * A copy of a shift, roles and all, placed just after the original: the
+   * 11am service starts out as the 9am one.
+   */
+  duplicateShift(id) {
+    const from = this.data.shifts.find((s) => s.id === id);
+    if (!from) return null;
+    const copy = this.addShift({
+      name: `${from.name} (copy)`, start: from.start, end: from.end, headcount: from.headcount,
+    });
+    copy.roles = (from.roles || []).map((r) => ({ ...r }));
+    copy.pcoPosition = from.pcoPosition ?? null;
+    // Slot it in right after the original, keeping the order numbers whole.
+    const ordered = this.shifts().filter((s) => s.id !== copy.id);
+    ordered.splice(ordered.findIndex((s) => s.id === id) + 1, 0, copy);
+    ordered.forEach((s, i) => { s.order = i; });
+    this.save();
+    return copy;
+  },
+
   /** Apply a patch to one shift. */
   updateShift(id, patch) {
     const shift = this.data.shifts.find((s) => s.id === id);

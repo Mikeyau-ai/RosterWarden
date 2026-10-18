@@ -40,6 +40,7 @@ const SHELL = [
   './js/sources/planning-center.js',
   './js/views/people.js',
   './js/views/shifts.js',
+  './js/views/team.js',
   './js/views/saved.js',
   './js/views/settings.js',
   './icons/icon-192.png',

@@ -7,23 +7,26 @@
  * which is enough for three sections and keeps the back button working.
  */
 import { store } from './store.js';
-import { el, fill, promptText, toast } from './ui.js';
+import { el, fill, promptText, toast, closeSheet } from './ui.js';
 
 import * as builderView from './views/roster.js';
 import * as savedView from './views/saved.js';
 import * as settingsView from './views/settings.js';
+import * as teamView from './views/team.js';
 // Imported for its side effect: it has to be listening for the browser's
 // install event from the moment the app starts, not when Settings is opened.
 import './install.js';
 import * as sync from './sync.js';
 import * as pco from './sources/planning-center.js';
 
-// Three sections. "Roster" is the rosters you have saved - the thing you open
-// the app to look at - and "New Roster" is the builder. People, shifts and
-// opening hours are set-up, so they live inside Settings.
+// Four sections. "Roster" is the rosters you have saved - the thing you open
+// the app to look at - and "New Roster" is the builder. "Team" is who you
+// roster and what they do (people, shifts and their roles); Settings is the
+// rest: the workplace itself, connections, and the app.
 const VIEWS = {
   roster: savedView,
   new: builderView,
+  team: teamView,
   settings: settingsView,
 };
 
@@ -32,8 +35,8 @@ const VIEWS = {
 const LEGACY_VIEWS = {
   saved: 'roster',
   build: 'new',
-  people: 'settings',
-  shifts: 'settings',
+  people: 'team',
+  shifts: 'team',
 };
 
 const NEW_ORG = '__new__';
@@ -58,11 +61,16 @@ function welcome() {
   const nameInput = el('input', {
     type: 'text', placeholder: 'e.g. Church Cafe', 'aria-label': 'Workplace name',
   });
+  const kindSelect = el('select', { 'aria-label': 'Start from' }, [
+    el('option', { value: 'cafe', textContent: 'A cafe or similar (a shift of 2 people)' }),
+    el('option', { value: 'band', textContent: 'A worship team (lead singer, guitar, drums…)' }),
+    el('option', { value: 'blank', textContent: 'A blank start' }),
+  ]);
   const create = (event) => {
     event.preventDefault();
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
-    createOrg(name);
+    createOrg(name, kindSelect.value);
   };
 
   return el('form', { className: 'card', onsubmit: create }, [
@@ -73,6 +81,8 @@ function welcome() {
     ]),
     el('label', { className: 'label', textContent: 'What do you roster for?' }),
     nameInput,
+    el('label', { className: 'label', textContent: 'Start from' }),
+    kindSelect,
     el('button', {
       type: 'submit', className: 'btn btn-primary btn-lg btn-block', textContent: 'Get started',
     }),
@@ -83,11 +93,11 @@ function welcome() {
  * Create an organisation with a starter shift and take the user to People,
  * the next thing a new roster needs (by hand, or from Planning Center).
  */
-function createOrg(name) {
+function createOrg(name, kind = 'cafe') {
   store.addOrg(name);
-  seedDefaults();
+  seedDefaults(kind);
   refreshOrgs();
-  show('settings', { section: 'people' });
+  show('team', { section: 'people' });
   toast(`${name} created — now add your people`);
 }
 
@@ -96,20 +106,33 @@ function createOrg(name) {
  * An empty Shifts screen is a dead end; a sensible default means the user can
  * go straight to adding people and press Build.
  */
-function seedDefaults() {
-  store.addShift({ name: 'Cafe', start: '08:00', end: '12:00', headcount: 2 });
+function seedDefaults(kind = 'cafe') {
+  if (kind === 'band') {
+    // The usual band, each part on its own role, ticked per person on Team.
+    const shift = store.addShift({ name: 'Service', start: '09:00', end: '11:00', headcount: 1 });
+    for (const [name, count] of [
+      ['Lead singer', 1], ['Backup singer', 2], ['Acoustic guitar', 1],
+      ['Electric guitar', 1], ['Bass', 1], ['Drums', 1], ['Keys', 1],
+    ]) store.setShiftRole(shift.id, store.addRole(name).id, count);
+  } else if (kind === 'blank') {
+    store.addShift({ name: 'Shift', start: '', end: '', headcount: 1 });
+  } else {
+    store.addShift({ name: 'Cafe', start: '08:00', end: '12:00', headcount: 2 });
+  }
 }
 
 /** Switch the visible view and update the tab bar. */
 export function show(name, options = {}) {
+  closeSheet();   // moving to another screen leaves any sheet behind
   if (LEGACY_VIEWS[name]) {
-    // A legacy name that now lives inside Settings opens straight at its
-    // section, so "shifts" still takes you to the shifts editor.
-    if (LEGACY_VIEWS[name] === 'settings') options = { section: name, ...options };
+    // A legacy name that now lives inside Settings or Team opens straight at
+    // its section, so "shifts" still takes you to the shifts editor.
+    if (['settings', 'team'].includes(LEGACY_VIEWS[name])) options = { section: name, ...options };
     name = LEGACY_VIEWS[name];
   }
   if (!VIEWS[name]) name = 'roster';
   if (name === 'settings') settingsView.openSection(options.section ?? null);
+  if (name === 'team') teamView.openSection(options.section ?? null);
   current = name;
   for (const tab of document.querySelectorAll('.tab')) {
     const active = tab.dataset.view === name;
