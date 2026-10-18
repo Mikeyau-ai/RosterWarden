@@ -11,12 +11,13 @@ import {
 } from '../scheduler.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
-  el, fill, toast, confirmDialog, calendarPicker, emptyState,
+  el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet,
 } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, exportButton,
 } from './roster-parts.js';
 import { show } from '../app.js';
+import * as teamView from './team.js';
 
 // The most recently built roster, kept across re-renders (e.g. after Save)
 // so the result isn't lost. `days` is the exact list of rostered dates used
@@ -39,6 +40,10 @@ let pendingDraftId = null;
 export function openDraft(id) {
   pendingDraftId = id;
 }
+
+// A name the user typed, held while a set-up sheet is open over the builder
+// (closing it redraws the page) and used once on that redraw.
+let keptName = null;
 
 // Whether the requests/days-off section is expanded, kept across its rebuilds.
 let requestsOpen = false;
@@ -83,7 +88,7 @@ export function render(container) {
   const draft = draftId != null ? store.roster(draftId) : null;
   const nameInput = el('input', {
     type: 'text',
-    value: draft ? draft.name : `Roster ${formatDate(start, { withWeekday: false })}`,
+    value: keptName ?? (draft ? draft.name : `Roster ${formatDate(start, { withWeekday: false })}`),
   });
 
   const summary = el('div', { className: 'faint' });
@@ -127,18 +132,39 @@ export function render(container) {
 
   // A draft carries a name the user chose (or accepted), so don't overwrite it
   // as the dates change; a fresh roster's name tracks the first date until typed.
-  let nameIsAuto = !draft;
+  let nameIsAuto = !draft && keptName == null;
+  keptName = null;
   nameInput.addEventListener('input', () => { nameIsAuto = false; });
 
   refreshCalendar();
 
   const activePeople = store.people().filter((p) => p.active);
   const shifts = store.shifts();
-  const readiness = el('div', {
-    className: 'faint',
-    textContent: `${activePeople.length} ${activePeople.length === 1 ? 'person' : 'people'} · ` +
-                 `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'}`,
-  });
+  /**
+   * Open the Team screen as a sheet over this one, so people, shifts and roles
+   * can be fixed without leaving the roster being built. Closing it redraws
+   * the page with the new counts; the dates picked are kept.
+   */
+  const openTeam = (part) => {
+    if (!nameIsAuto) keptName = nameInput.value;
+    teamView.openSection(part);
+    openSheet('Who you roster', (body) => teamView.render(body), () => render(container));
+  };
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const readiness = el('div', { className: 'setup-chips' }, [
+    el('button', {
+      type: 'button', className: 'btn btn-sm', onclick: () => openTeam('people'),
+      textContent: `${plural(activePeople.length, 'person', 'people')} ›`,
+    }),
+    el('button', {
+      type: 'button', className: 'btn btn-sm', onclick: () => openTeam('shifts'),
+      textContent: `${plural(shifts.length, 'shift', 'shifts')} ›`,
+    }),
+    store.roles().some((r) => !r.anyone) ? el('button', {
+      type: 'button', className: 'btn btn-sm', onclick: () => openTeam('skills'),
+      textContent: 'Who can do what ›',
+    }) : null,
+  ]);
 
   const errDiv = el('div', { className: 'err' });
   const resultsBox = el('div');
@@ -196,7 +222,7 @@ export function render(container) {
       'No shifts yet',
       'Add at least one shift before building a roster.',
       el('button', {
-        className: 'btn btn-primary', textContent: 'Add shifts', onclick: () => show('shifts'),
+        className: 'btn btn-primary', textContent: 'Add shifts', onclick: () => openTeam('shifts'),
       })
     );
   } else if (activePeople.length === 0) {
@@ -204,7 +230,7 @@ export function render(container) {
       'No active people yet',
       'Add people before building a roster.',
       el('button', {
-        className: 'btn btn-primary', textContent: 'Add people', onclick: () => show('people'),
+        className: 'btn btn-primary', textContent: 'Add people', onclick: () => openTeam('people'),
       })
     );
   } else {

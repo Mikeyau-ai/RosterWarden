@@ -7,23 +7,26 @@
  * which is enough for three sections and keeps the back button working.
  */
 import { store } from './store.js';
-import { el, fill, promptText, toast } from './ui.js';
+import { el, fill, promptText, toast, closeSheet } from './ui.js';
 
 import * as builderView from './views/roster.js';
 import * as savedView from './views/saved.js';
 import * as settingsView from './views/settings.js';
+import * as teamView from './views/team.js';
 // Imported for its side effect: it has to be listening for the browser's
 // install event from the moment the app starts, not when Settings is opened.
 import './install.js';
 import * as sync from './sync.js';
 import * as pco from './sources/planning-center.js';
 
-// Three sections. "Roster" is the rosters you have saved - the thing you open
-// the app to look at - and "New Roster" is the builder. People, shifts and
-// opening hours are set-up, so they live inside Settings.
+// Four sections. "Roster" is the rosters you have saved - the thing you open
+// the app to look at - and "New Roster" is the builder. "Team" is who you
+// roster and what they do (people, shifts and their roles); Settings is the
+// rest: the workplace itself, connections, and the app.
 const VIEWS = {
   roster: savedView,
   new: builderView,
+  team: teamView,
   settings: settingsView,
 };
 
@@ -32,8 +35,8 @@ const VIEWS = {
 const LEGACY_VIEWS = {
   saved: 'roster',
   build: 'new',
-  people: 'settings',
-  shifts: 'settings',
+  people: 'team',
+  shifts: 'team',
 };
 
 const NEW_ORG = '__new__';
@@ -87,7 +90,7 @@ function createOrg(name) {
   store.addOrg(name);
   seedDefaults();
   refreshOrgs();
-  show('settings', { section: 'people' });
+  show('team', { section: 'people' });
   toast(`${name} created — now add your people`);
 }
 
@@ -102,14 +105,16 @@ function seedDefaults() {
 
 /** Switch the visible view and update the tab bar. */
 export function show(name, options = {}) {
+  closeSheet();   // moving to another screen leaves any sheet behind
   if (LEGACY_VIEWS[name]) {
-    // A legacy name that now lives inside Settings opens straight at its
-    // section, so "shifts" still takes you to the shifts editor.
-    if (LEGACY_VIEWS[name] === 'settings') options = { section: name, ...options };
+    // A legacy name that now lives inside Settings or Team opens straight at
+    // its section, so "shifts" still takes you to the shifts editor.
+    if (['settings', 'team'].includes(LEGACY_VIEWS[name])) options = { section: name, ...options };
     name = LEGACY_VIEWS[name];
   }
   if (!VIEWS[name]) name = 'roster';
   if (name === 'settings') settingsView.openSection(options.section ?? null);
+  if (name === 'team') teamView.openSection(options.section ?? null);
   current = name;
   for (const tab of document.querySelectorAll('.tab')) {
     const active = tab.dataset.view === name;
