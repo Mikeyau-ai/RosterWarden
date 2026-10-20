@@ -3,42 +3,118 @@
 **Fair staff rosters in seconds, on your phone.** From [Sixth Day Studios](https://sixthdaystudios.com),
 alongside InvoiceWarden and RamWarden. Formerly **Rosterm8** (renamed 2026-10).
 
-Add your people, tick the days each of them can work, note who's away and who
-shouldn't be paired up, then press **Build roster**. RosterWarden spreads the
-shifts fairly, honours every constraint you gave it, and tells you plainly when
-it couldn't fill something rather than quietly fudging it.
+Add your people, set up your shifts and the roles inside them, note who's away
+and who shouldn't be paired up, then press **Build roster**. RosterWarden spreads
+the shifts fairly, honours every constraint you gave it, and tells you plainly
+when it couldn't fill something rather than quietly fudging it. Staff can send
+the dates they can't work through their own private link.
 
 Built for a small church cafe's casual weekend roster, but nothing in it is
-specific to that: it handles any set of named shifts on any days of the week.
-Churches on **Planning Center** can bring a Services team and everyone's
+specific to that: it handles any set of named shifts and roles on any days of
+the week, from a cafe to a worship band to a catering crew. Churches on
+**Planning Center** can bring a Services team, its positions and everyone's
 blockout dates straight in, and send finished rosters back into their plans.
 
 ## Using it
 
-Open the site, tap **Add to Home Screen** (Safari: Share → Add to Home Screen;
-Chrome: menu → Install app), and it behaves like an installed app: full screen,
-its own icon, and it works with no signal.
+Open <https://rosterwarden.sixthdaystudios.com/>, tap **Add to Home Screen**
+(Safari: Share → Add to Home Screen; Chrome: menu → Install app), and it behaves
+like an installed app: full screen, its own icon, and it works with no signal.
 
-Three sections:
+Four sections:
 
 - **Roster**: the rosters you've saved. This is what you open it to look at.
 - **New Roster**: the calendar and the Build button.
+- **Team**: People, Shifts (with their roles), and Skills, a grid of who can do
+  which role.
 - **Settings**, in three groups:
-  - *Your workplace*: People, Shifts, Name and opening hours
+  - *Your workplace*: Name and opening hours
   - *Connections*: Planning Center, AI assist
   - *App*: Sync and backup, Add to Home Screen, About
 
-1. **Name your workplace** on the welcome screen: the cafe, the shop, the team.
-   You can have more than one; the dropdown at the top switches between them.
-2. **People**: add everyone and tick the days each can work. **Add several**
-   takes a pasted list of names (one per line, with an optional `- Sat, Sun`)
-   and walks you through the day picker for anyone whose days you didn't type.
-   Or bring a team in from Planning Center (below).
-3. **Shifts**: the blocks of work a day is made of, e.g. `Cafe 08:00–12:00,
-   2 people needed`. They're filled in the order listed.
-4. **New Roster**: tap the dates on the calendar, press **Build**. Save it and
-   it appears under **Roster**, where you can edit, copy, share, or send it to
-   Planning Center.
+1. **Name your workplace** on the welcome screen and pick a starting point: a
+   cafe (one shift of two people), a worship team (a service with lead singer,
+   backup singers, guitars, bass, drums and keys) or blank. You can have more
+   than one workplace; the dropdown at the top switches between them.
+2. **People** (Team tab): everyone starts available every day; untick the days
+   they can't do. **Add several** takes a pasted list of names (one per line,
+   with an optional `- Sat, Sun`). Or bring a team in from Planning Center
+   (below). Once the list is long there's a search box, and **Select several**
+   sets days, ticks a role, or pauses people in one go.
+3. **Shifts** (Team tab): the blocks of work a day is made of, e.g. `Cafe
+   08:00–12:00, 2 people needed`, filled in the order listed. **Copy** duplicates
+   a shift with its roles.
+4. **New Roster**: tap the dates on the calendar, press **Build**. The
+   "4 people · 2 shifts · Who can do what" buttons open the Team screen over the
+   roster you're building, so fixing set-up never loses your dates. Save it and
+   it appears under **Roster**.
+
+### A person's page
+
+Besides their name and the days they can work, each person can have:
+
+- **How often**: as often as needed, every 2nd or 3rd week at most, or about once
+  a month. A preference: they're still used if nobody else is free.
+- **Only these weeks of the month**: e.g. the 1st and 3rd Sunday. A date they
+  asked for overrides it.
+- **Roles** they can do (also on the Skills grid), **asked to work** dates, a
+  **max shifts** per roster, and **away dates**.
+- **Never with** (kept apart) and **Serves with** (a couple or a parent and
+  child: when one is rostered, the other goes on the same shift if they're free
+  and can do a place left on it).
+- **Their availability link** (see Staff availability links below).
+- An optional **mobile**, **email** and **pay per hour**.
+
+### Roles inside shifts
+
+A shift can list the roles it needs and how many of each (`Lead singer × 1,
+Drums × 1`); its "Staff needed" is then their total. People are only put on roles
+they're ticked for, except roles marked **anyone can do it** (serving, set-up).
+The role nobody else can fill is filled first, so the only drummer isn't used
+up on backing vocals. Roles belong to the workplace, so "Guitar" on the 9am and
+11am services is one role and one tick per person.
+
+### After building
+
+- **Things to check** (folded until opened) lists what couldn't be done.
+  **Fill the gaps** turns "Drums: short on 2 days" into a picker of who else
+  could do it: choosing one ticks them for the role and rebuilds.
+- **Tap any name** to replace them with someone free that day who can do the
+  role, swap them with someone else on that day, take them off, or lock them in.
+  A hand-made change is locked (🔒), and **Rebuild around locked** keeps it while
+  refilling the rest. **Undo** steps back through edits and swaps.
+- **Share / export**: a group message, each person's shifts, **Message each
+  person** (their own dates, with Text and Email buttons when you've saved their
+  mobile or email), print or PDF, a calendar file, a spreadsheet, and Planning
+  Center (below).
+- The tally shows shifts and hours per person, and an estimated pay total when
+  anyone has a pay rate.
+- On a saved roster, **Next one** starts a draft with the same days moved on by
+  whole weeks. Saved rosters re-check themselves when opened, so someone who is
+  now away on a day they're rostered shows up in Things to check.
+
+Every section (the calendar, requests, the roster, the warnings) folds away
+with its arrow; everything starts open except the warnings.
+
+### Staff availability links
+
+Each person can get a private link to tell you the dates they can't work, with
+no login. On their page: **Create link**, then **Email**, **Text**, **Share** or
+**Copy** sends it from your own phone, and RosterWarden notes when and how it was
+sent. The link opens a page with just their name, their upcoming shifts, a
+calendar to tap the dates they can't work, and a note.
+
+Your app picks up what they sent when it opens and whenever you come back to it
+(or straight away with **Check now**). Their dates become away dates marked
+"from their link", replacing what they sent before; away dates you entered are
+never touched. A new date that clashes with a saved roster is announced. **Clear
+them** removes only their dates, and **Make a new link** cancels the old link for
+good while keeping their dates.
+
+The key is in the link after the `#`, which browsers never send to a server.
+What they enter, and the name and shifts on their page, are encrypted with it
+and stored in two small mailboxes on the sync worker, which can't read them.
+Your copy of each key lives in your own (encrypted) data.
 
 ### Opening days and hours
 
@@ -80,13 +156,20 @@ person's own Planning Center login (OAuth). Then:
   duplicated) and replaces everyone's Planning Center blockouts with the current
   ones, including repeating blockouts. Away dates you typed yourself are never
   touched. The days each person can work are still set in RosterWarden.
+- **Add positions from Planning Center** (on a shift): the team's positions
+  become roles on that shift, each sent back as the same position, and everyone
+  is ticked for the positions Planning Center has them down for.
 - **Send each shift as**: the team position each shift fills (e.g. Cafe →
-  Barista).
-- **Send to Planning Center** (on a saved roster): adds everyone to the plans on
-  those dates as **Unconfirmed**, with notifications *prepared but not sent*.
-  Nobody hears anything until you press Send in Planning Center. Sending twice
-  doesn't double anyone up. Dates with no plan, people not on the team, and
-  shifts with no position are listed afterwards.
+  Barista). A role can have its own position, which wins over its shift's.
+- **Share / export → Planning Center → Send…**: first reads Planning Center and
+  shows what would happen (how many go into how many plans, who's already there,
+  who isn't on the team, shifts with no position, dates with no plan), then asks
+  whether to notify. Everyone is added as **Unconfirmed**, with notifications
+  *prepared but not sent*: nobody hears anything until you press Send in
+  Planning Center. Sending twice doesn't double anyone up.
+- **Check replies** (same place): reads who confirmed, is waiting or declined,
+  marks names with ✓ or ✕, and lists anyone who declined with a **Replace**
+  button. Reads only.
 
 Each device signs in for itself; the token stays on that device and is not in
 backups or sync. Sign-in uses PKCE and a `state` check, and **Disconnect**
@@ -132,14 +215,21 @@ given the same inputs it always produces the same roster. No AI, no randomness.
 
 For each vacancy it ranks everyone who is eligible by
 
-1. fewest shifts worked so far in this roster: spread the load
-2. longest since they last worked: spread the days out
-3. name: a stable tiebreak, so the result never changes between runs
+1. whether they asked for that date: requests go first
+2. whether they'd rather serve less often and served too recently: they go
+   behind everyone else, but are still used if nobody else is left
+3. fewest shifts: this roster's plus those in saved rosters from the 90 days
+   before it, so fairness carries from one roster to the next
+4. longest since they last worked: spread the days out
+5. name: a stable tiebreak, so the result never changes between runs
 
 and takes the top candidate. It works from the exact dates picked, and enforces
-weekly availability, away dates, "never together" pairs, an optional per-person
-cap, and one shift per person per day. Requested dates override the weekday
-pattern. Anything it can't satisfy becomes a note on the roster instead of a
+weekly and week-of-month availability, away dates, "never together" pairs, roles,
+an optional per-person cap (counted within the roster), and one shift per person
+per day. Requested dates override the weekday and week-of-month patterns. A
+shift's roles are filled hardest first; a partner who serves with someone joins
+them on the same shift when they can; locked places are kept and only the rest
+is filled. Anything it can't satisfy becomes a note on the roster instead of a
 silent gap.
 
 ## The AI bit is optional
@@ -173,11 +263,15 @@ node --test tests/*.mjs
 | Boot + nav | `js/app.js` |
 | Allocation | `js/scheduler.js` |
 | Storage + backup | `js/store.js` |
+| Messages, CSV, calendar, hours | `js/export.js` |
 | Planning Center | `js/sources/planning-center.js` (API), `js/views/planning-center.js` (screens) |
+| Staff availability links | `js/staff-link.js` (keys, mailboxes), `js/staff.js` (owner side), `js/views/staff.js` (staff page) |
+| Team tab | `js/views/team.js` (People, Shifts, Skills), `js/views/people.js`, `js/views/shifts.js` |
 | AI assist | `js/ai.js` |
 | Shared widgets | `js/ui.js` |
 | Roster display + editing | `js/views/roster-parts.js` |
-| Encrypted sync + sign-in swap | `js/sync.js`, `js/config.js`, `worker/` |
+| Encrypted sync, staff mailboxes, sign-in swap | `js/sync.js`, `js/config.js`, `worker/` |
+| Hosting | `wrangler.jsonc`, `wr.py` |
 | Home-screen install | `js/install.js` |
 | Screens | `js/views/*.js` |
 | Offline | `sw.js`, `manifest.webmanifest` |
