@@ -386,6 +386,17 @@ export function auditRoster(roster, people, shifts, roles = []) {
     }
   }
 
+  // Someone on the roster on a day they are now away: their dates changed
+  // after it was made (from their own link, Planning Center, or by hand).
+  const personOf = new Map(people.map((p) => [p.id, p]));
+  for (const a of roster.assignments) {
+    const p = personOf.get(a.personId);
+    const n = toDays(a.date);
+    if (p && (p.blackouts || []).some((b) => toDays(b.start) <= n && n <= toDays(b.end))) {
+      notes.push(`${formatDate(a.date)} - ${p.name} is rostered but is now away.`);
+    }
+  }
+
   const datesByPerson = new Map();
   for (const a of roster.assignments) {
     if (!datesByPerson.has(a.personId)) datesByPerson.set(a.personId, new Set());

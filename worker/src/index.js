@@ -17,6 +17,13 @@
  * `:id` is a 64-character hex SHA-256 derived from the user's secret. It is
  * unguessable, and it is NOT the encryption key - see js/sync.js.
  *
+ * Staff link mailboxes (see js/staff-link.js) - small encrypted boxes, one
+ * each way per staff member, under ids derived from that person's link key:
+ *   GET    /box/:id  ->  { ciphertext, iv, updatedAt }  (404 empty, 410 replaced)
+ *   PUT    /box/:id  <-  { ciphertext, iv, updatedAt }  (410 once replaced)
+ *   DELETE /box/:id  ->  { ok: true }  marks it replaced, so the old link stops working
+ *   POST   /boxes    <-  { ids: [...] } -> { [id]: { ciphertext, iv, updatedAt } | { replaced: true } }
+ *
  * Planning Center sign-in endpoints (see js/sources/planning-center.js):
  *   POST /pco/token    <- { code, redirect_uri, code_verifier } -> Planning Center's token response
  *   POST /pco/refresh  <- { refresh_token }        -> Planning Center's token response
@@ -37,6 +44,25 @@ const USER_AGENT = 'RosterWarden (https://sixthdaystudios.com)';
 /** Biggest blob accepted, in bytes. A large roster is a few tens of KB. */
 const MAX_BYTES = 2 * 1024 * 1024;
 
+/** Biggest mailbox accepted, in bytes: a person's dates, a note and their shifts. */
+const BOX_MAX_BYTES = 64 * 1024;
+
+/** Most mailboxes read in one batch request. */
+const BOX_BATCH_MAX = 200;
+
+/**
+ * The mailbox SQL, named so the tests can run the worker against a stand-in
+ * database that answers exactly these statements.
+ */
+export const BOX_SQL = {
+  read: 'SELECT ciphertext, iv, updated_at, revoked FROM mailboxes WHERE id = ?',
+  write: 'INSERT INTO mailboxes (id, ciphertext, iv, updated_at, revoked) VALUES (?, ?, ?, ?, 0) '
+    + 'ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, '
+    + 'updated_at = excluded.updated_at WHERE mailboxes.revoked = 0',
+  revoke: "INSERT INTO mailboxes (id, ciphertext, iv, updated_at, revoked) VALUES (?, '', '', ?, 1) "
+    + "ON CONFLICT(id) DO UPDATE SET ciphertext = '', iv = '', updated_at = excluded.updated_at, revoked = 1",
+};
+
 /** Ids are always a hex SHA-256; anything else is a bad request, not a lookup. */
 const ID_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -44,7 +70,7 @@ const ID_PATTERN = /^[0-9a-f]{64}$/;
 function cors(origin) {
   return {
     'Access-Control-Allow-Origin': origin || '*',
-    'Access-Control-Allow-Methods': 'GET, PUT, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
@@ -78,6 +104,16 @@ export default {
       return pcoRevoke(request, env, origin);
     }
 
+    if (request.method === 'POST' && url.pathname === '/boxes') return boxBatch(request, env, origin);
+    const box = url.pathname.match(/^\/box\/([^/]+)$/);
+    if (box) {
+      if (!ID_PATTERN.test(box[1])) return json({ error: 'Bad id' }, 400, origin);
+      if (request.method === 'GET') return boxRead(box[1], env, origin);
+      if (request.method === 'PUT') return boxWrite(box[1], request, env, origin);
+      if (request.method === 'DELETE') return boxRevoke(box[1], env, origin);
+      return json({ error: 'Method not allowed' }, 405, origin);
+    }
+
     const match = url.pathname.match(/^\/db\/([^/]+)$/);
     if (!match) return json({ error: 'Not found' }, 404, origin);
 
@@ -89,6 +125,64 @@ export default {
     return json({ error: 'Method not allowed' }, 405, origin);
   },
 };
+
+/** One mailbox: its contents, 404 if never written, 410 once its link was replaced. */
+async function boxRead(id, env, origin) {
+  const row = await env.DB.prepare(BOX_SQL.read).bind(id).first();
+  if (!row) return json({ error: 'Nothing here yet' }, 404, origin);
+  if (row.revoked) return json({ error: 'This link has been replaced' }, 410, origin);
+  return json({ ciphertext: row.ciphertext, iv: row.iv, updatedAt: row.updated_at }, 200, origin);
+}
+
+/** Store a mailbox's contents - refused once its link has been replaced. */
+async function boxWrite(id, request, env, origin) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Body must be JSON' }, 400, origin);
+  }
+  const { ciphertext, iv, updatedAt } = body || {};
+  if (typeof ciphertext !== 'string' || typeof iv !== 'string') {
+    return json({ error: 'ciphertext and iv are required' }, 400, origin);
+  }
+  if (ciphertext.length > BOX_MAX_BYTES) return json({ error: 'Too large' }, 413, origin);
+
+  const row = await env.DB.prepare(BOX_SQL.read).bind(id).first();
+  if (row?.revoked) return json({ error: 'This link has been replaced' }, 410, origin);
+
+  const stamp = typeof updatedAt === 'string' ? updatedAt : new Date().toISOString();
+  await env.DB.prepare(BOX_SQL.write).bind(id, ciphertext, iv, stamp).run();
+  return json({ ok: true, updatedAt: stamp }, 200, origin);
+}
+
+/** Mark a mailbox replaced: its contents go, and its link can never write again. */
+async function boxRevoke(id, env, origin) {
+  await env.DB.prepare(BOX_SQL.revoke).bind(id, new Date().toISOString()).run();
+  return json({ ok: true }, 200, origin);
+}
+
+/** Several mailboxes at once, so the owner's app checks every staff link in one request. */
+async function boxBatch(request, env, origin) {
+  let ids;
+  try {
+    ({ ids } = await request.json());
+  } catch {
+    return json({ error: 'Body must be JSON' }, 400, origin);
+  }
+  if (!Array.isArray(ids) || ids.length > BOX_BATCH_MAX || !ids.every((id) => ID_PATTERN.test(id))) {
+    return json({ error: 'ids must be up to 200 hex ids' }, 400, origin);
+  }
+  const out = {};
+  for (const id of ids) {
+    const row = await env.DB.prepare(BOX_SQL.read).bind(id).first();
+    if (!row) continue;
+    out[id] = row.revoked
+      ? { replaced: true }
+      : { ciphertext: row.ciphertext, iv: row.iv, updatedAt: row.updated_at };
+  }
+  return json(out, 200, origin);
+}
 
 /** Return the stored blob for `id`, or 404 if there has never been one. */
 async function read(id, env, origin) {

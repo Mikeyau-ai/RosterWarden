@@ -217,7 +217,8 @@ function renderOpen(roster, container) {
   return [
     back,
     el('h2', { textContent: roster.name }),
-    notesBox(roster),
+    // Checked afresh each time, so a date someone sent since it was saved shows here.
+    notesBox({ ...roster, notes: auditRoster(roster, people, shifts, store.roles()) }),
     editing ? null : declinedCard(roster, people, shifts, change),
     ...cards,
     tally(roster, people, shifts),

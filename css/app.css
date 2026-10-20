@@ -456,6 +456,7 @@ pre.roster-text {
   text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .declined { color: var(--bad); text-decoration: line-through; }
+.staff-mode .tabbar, .staff-mode .org-switch { display: none; }
 .setup-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 
 /* ── toast + modal ───────────────────────────────────────────────────── */
