@@ -10,6 +10,12 @@ key never leaves it.
 That is the point. Hosting other people's staff names and availability would
 make you responsible for them. Hosting ciphertext you cannot decrypt does not.
 
+It also keeps the **staff availability link** mailboxes (`/box/:id`, `/boxes`,
+table `mailboxes` in `schema.sql`): two small encrypted boxes per staff member,
+keyed by ids made from the key in their link. Same rule: it stores them and
+cannot read them. Replacing a link marks its boxes `revoked`, so an old link can
+never write again.
+
 It also does one small job for Planning Center sign-in: `POST /pco/token`,
 `POST /pco/refresh` and `POST /pco/revoke` add the app's client secret (and an
 identifying User-Agent, which Planning Center requires) to a token request and
