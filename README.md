@@ -103,7 +103,7 @@ the card just says Planning Center isn't set up.
    since only org admins can create OAuth apps and every admin of that org can
    manage it. Create **one** OAuth application there at
    <https://api.planningcenteronline.com/oauth/applications>, with callback URLs
-   `https://mikeyau-ai.github.io/RosterWarden/` and `http://localhost:8123/`.
+   `https://rosterwarden.sixthdaystudios.com/` and `http://localhost:8123/`.
    Every church then signs in through that one app; none of them register
    anything. The free org can also hold sample data to test against.
 2. Put the client id in `js/config.js` (`PCO_CLIENT_ID`) and
@@ -189,7 +189,13 @@ Rosterm8). It is no longer developed.
 
 ## Deploying
 
-GitHub Pages, straight from `main`: push and the site updates. The service
+The app lives at <https://rosterwarden.sixthdaystudios.com/>, served as static
+files by Cloudflare (`wrangler.jsonc`). Deploy from `main` with
+`python wr.py deploy`: it copies just the app (`index.html`, the manifest,
+`sw.js`, `css/`, `js/`, `icons/`) into `dist/` and publishes that, using the
+Cloudflare token in Guardian's `.env`. Merging to `main` does not deploy by
+itself. The old `mikeyau-ai.github.io/RosterWarden/` address is a redirect,
+served from the `gh-pages` branch, that keeps any `#staff=` link part. The service
 worker serves the cached copy first and refreshes in the background; when that
 finds a changed file the open page reloads onto it within seconds. Add any new
 file to the `SHELL` list in `sw.js` so it works offline.
