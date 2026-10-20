@@ -1,0 +1,16 @@
+// The RosterWarden app itself, served by Cloudflare at rosterwarden.sixthdaystudios.com.
+//
+// Static files only - no code runs on the server. wr.py copies just the app
+// (index.html, manifest, sw.js, css, js, icons) into dist/ and publishes that.
+//
+// Deploy:  python wr.py deploy
+{
+  "name": "rosterwarden-app",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  "routes": [
+    { "pattern": "rosterwarden.sixthdaystudios.com", "custom_domain": true }
+  ]
+}
