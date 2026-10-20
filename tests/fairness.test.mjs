@@ -57,3 +57,10 @@ test('a locked place counts toward a role, so the role is not filled twice', () 
   assert.equal(r.assignments.length, 1);
   assert.equal(r.assignments[0].personId, 2);
 });
+
+test('someone rostered on a day they are now away is flagged', async () => {
+  const { auditRoster } = await import('../js/scheduler.js');
+  const people = [person(1, 'Amy', { blackouts: [{ start: '2026-11-01', end: '2026-11-01' }] })];
+  const notes = auditRoster({ days: ['2026-11-01'], assignments: [{ date: '2026-11-01', shiftId: 1, personId: 1 }] }, people, [cafe]);
+  assert.ok(notes.some((n) => n.includes('Amy is rostered but is now away')), notes.join(' | '));
+});

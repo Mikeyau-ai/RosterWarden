@@ -18,6 +18,9 @@ import * as teamView from './views/team.js';
 import './install.js';
 import * as sync from './sync.js';
 import * as pco from './sources/planning-center.js';
+import * as staff from './staff.js';
+import { keyFromHash } from './staff-link.js';
+import * as staffPage from './views/staff.js';
 
 // Four sections. "Roster" is the rosters you have saved - the thing you open
 // the app to look at - and "New Roster" is the builder. "Team" is who you
@@ -214,9 +217,32 @@ function registerWorker() {
     .catch(() => {});
 }
 
+/**
+ * A staff member's link: show only their page. Nothing else starts - no
+ * workplace, and no sync of this phone's data - so opening a link can never
+ * create or upload anything of its own.
+ */
+function startStaffPage(key) {
+  registerWorker();
+  window.addEventListener('hashchange', () => location.reload());
+  staffPage.render(document.getElementById('view'), key);
+}
+
+/** The link this phone remembers from opening it before, or null. */
+function rememberedLink() {
+  try { return localStorage.getItem(staffPage.STORED_KEY); } catch { return null; }
+}
+
 /** Wire everything up and show the first screen. */
 function init() {
+  const linkKey = keyFromHash(location.hash);
+  if (linkKey) { startStaffPage(linkKey); return; }
+
   store.load();
+
+  // A staff member reopening the installed app (no hash) comes back to their page,
+  // as long as this phone isn't also someone's roster.
+  if (store.orgs().length === 0 && rememberedLink()) { startStaffPage(rememberedLink()); return; }
 
   // Sync is on unless the user has turned it off. Enabling it uploads what is
   // already here rather than replacing it, so switching on never costs anyone
@@ -227,6 +253,9 @@ function init() {
   store.onSaved((data) => {
     sync.markChanged();
     sync.schedulePush(data);
+    // Staff link pages show upcoming shifts; refresh them a little after changes settle.
+    clearTimeout(staffPublishTimer);
+    staffPublishTimer = setTimeout(() => staff.publish().catch(() => {}), 5000);
   });
   refreshOrgs();
 
@@ -234,7 +263,14 @@ function init() {
     tab.addEventListener('click', () => show(tab.dataset.view));
   }
   document.getElementById('org-select').addEventListener('change', onOrgChange);
-  window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+  window.addEventListener('hashchange', () => {
+    if (keyFromHash(location.hash)) { location.reload(); return; }
+    show(location.hash.slice(1));
+  });
+  // Coming back to the app is a good moment to look for dates staff have sent.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') collectStaff();
+  });
 
   show(location.hash.slice(1) || 'roster');
   registerWorker();
@@ -276,6 +312,34 @@ async function startSync() {
   if (result.action === 'downloaded') toast('Updated from your other device');
   if (result.action === 'conflict') {
     toast('This and another device both changed things — kept what is on this one');
+  }
+  collectStaff();
+}
+
+// Debounce timer for refreshing staff link pages after a save.
+let staffPublishTimer = null;
+
+// When staff links were last checked, so flicking between apps doesn't hammer the server.
+let staffCheckedAt = 0;
+
+/**
+ * Pick up dates staff have sent through their links, apply them, and say so -
+ * loudly if a new date clashes with a saved roster. Quiet when offline.
+ */
+async function collectStaff() {
+  if (Date.now() - staffCheckedAt < 60 * 1000) return;
+  staffCheckedAt = Date.now();
+  try {
+    const changed = await staff.syncStaff();
+    if (changed.length === 0) return;
+    const names = changed.length > 2 ? `${changed.length} people` : changed.map((p) => p.name.split(' ')[0]).join(' and ');
+    const clashes = staff.clashes(changed);
+    toast(clashes.length
+      ? `New dates from ${names}: ${clashes.length} clash with a saved roster`
+      : `New dates from ${names}`);
+    render();
+  } catch {
+    // Offline or the server is down: the next check will catch up.
   }
 }
 

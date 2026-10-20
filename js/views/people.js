@@ -11,9 +11,12 @@ import { formatDate, todayISO } from '../scheduler.js';
 import { parsePeopleList } from '../people-import.js';
 import { isConfigured as pcoConfigured } from '../sources/planning-center.js';
 import { show } from '../app.js';
+import * as staff from '../staff.js';
+import { linkUrl } from '../staff-link.js';
+import { SYNC_URL } from '../config.js';
 import {
   el, fill, toast, promptText, confirmDialog, promptDateRange, weekdayPicker, monthGrid,
-  dialog, DAY_LABELS,
+  dialog, DAY_LABELS, copyText,
 } from '../ui.js';
 
 // Id of the person currently open in the editor, or null when showing the list.
@@ -155,7 +158,11 @@ function renderList(container) {
         mark,
         el('div', { className: 'item-main' }, [
           el('div', { className: 'item-title', textContent: p.name }),
-          el('div', { className: 'item-sub', textContent: availabilitySummary(p) }),
+          el('div', {
+            className: 'item-sub',
+            textContent: availabilitySummary(p)
+              + (p.staffLink ? (p.staffLink.sentAt ? ' · link sent' : ' · link not sent') : ''),
+          }),
         ]),
       ]);
     }) : el('div', { className: 'muted', textContent: 'Nobody matches that.' }));
@@ -379,6 +386,7 @@ function renderEditor(id, container) {
   const rolesCard = renderRolesCard(person);
   const patternCard = renderPatternCard(person);
   const togetherCard = renderTogetherCard(person, container);
+  const linkCard = renderStaffLinkCard(person, container);
   const contactCard = renderContactCard(person);
   const wantedCard = renderWantedDatesCard(person, container);
   const maxCard = renderMaxShiftsCard(person);
@@ -410,7 +418,7 @@ function renderEditor(id, container) {
   });
 
   return [
-    header, nameCard.node, availCard, patternCard, rolesCard, wantedCard, maxCard.node, awayCard,
+    header, nameCard.node, availCard, patternCard, rolesCard, wantedCard, maxCard.node, awayCard, linkCard,
     clashCard, togetherCard, contactCard,
     saveBtn, deleteBtn,
   ];
@@ -564,6 +572,107 @@ function renderContactCard(person) {
     field('Mobile (optional)', 'phone', 'tel', person.phone),
     field('Email (optional)', 'email', 'email', person.email),
     field('Pay per hour (optional)', 'hourlyRate', 'number', person.hourlyRate),
+  ]);
+}
+
+/**
+ * Card: the person's own private link for telling you the dates they can't
+ * work. It is sent from your phone (email, text or share), never by the
+ * server, so the link and its key stay between you and them. Their dates
+ * arrive as away dates marked "from their link".
+ */
+function renderStaffLinkCard(person, container) {
+  if (!SYNC_URL) return null;
+  const first = person.name.split(' ')[0];
+  const redraw = () => render(container);
+  const title = el('label', { className: 'label', textContent: 'Their availability link' });
+
+  if (!staff.hasLink(person)) {
+    return el('div', { className: 'card' }, [
+      title,
+      el('div', { className: 'faint', textContent: `${first} gets a private link to tap the dates they can't work. They show up here as away dates, and nobody else can see them.` }),
+      el('button', {
+        className: 'btn btn-sm', textContent: 'Create link',
+        onclick: async () => { await staff.createLink(person.id); redraw(); },
+      }),
+    ]);
+  }
+
+  const sl = person.staffLink;
+  const org = store.currentOrg()?.name || 'us';
+  const text = `Hi ${first}, here's your link to tell ${org} the dates you can't work: ${linkUrl(sl.key)}`;
+  /** Note that it was sent (a moment later, so the mail or messages app opens first). */
+  const sent = (via) => setTimeout(() => { staff.markSent(person.id, via); redraw(); }, 300);
+  const send = [
+    person.email ? el('a', {
+      className: 'btn btn-sm', textContent: 'Email', onclick: () => sent('email'),
+      href: `mailto:${person.email}?subject=${encodeURIComponent('Your availability link')}&body=${encodeURIComponent(text)}`,
+    }) : null,
+    person.phone ? el('a', {
+      className: 'btn btn-sm', textContent: 'Text', onclick: () => sent('text'),
+      href: `sms:${person.phone}?&body=${encodeURIComponent(text)}`,
+    }) : null,
+    navigator.share ? el('button', {
+      className: 'btn btn-sm', textContent: 'Share',
+      onclick: async () => {
+        try { await navigator.share({ title: 'Your availability link', text }); sent('share'); } catch { /* closed */ }
+      },
+    }) : null,
+    el('button', { className: 'btn btn-sm', textContent: 'Copy', onclick: () => { copyText(text); sent('copy'); } }),
+  ];
+
+  const sentLine = sl.sentAt
+    ? `Sent ${formatDate(sl.sentAt.slice(0, 10), { withWeekday: false })} by ${sl.sentVia}`
+    : 'Not sent yet';
+  const heard = sl.lastFromStaff
+    ? `Last updated from their link: ${new Date(sl.lastFromStaff).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`
+    : 'Nothing from them yet.';
+  const upcoming = staff.staffDates(person).filter((d) => d >= todayISO());
+
+  return el('div', { className: 'card' }, [
+    title,
+    el('div', { className: 'row-tight', style: 'flex-wrap:wrap' }, send),
+    !person.phone && !person.email
+      ? el('div', { className: 'faint', textContent: 'Add their mobile or email below to text or email it from your phone.' })
+      : null,
+    el('div', { className: 'spread' }, [
+      el('div', { className: sl.sentAt ? 'faint' : 'muted', textContent: sentLine }),
+      sl.sentAt ? null : el('button', { className: 'btn btn-sm', textContent: 'Mark as sent', onclick: () => sent('hand') }),
+    ]),
+    el('div', { className: 'faint', textContent: heard }),
+    sl.note ? el('div', { className: 'muted', textContent: `"${sl.note}"` }) : null,
+    upcoming.length ? el('div', { className: 'spread' }, [
+      el('div', { textContent: `${upcoming.length} upcoming date${upcoming.length === 1 ? '' : 's'} from their link` }),
+      el('button', {
+        className: 'btn btn-sm', textContent: 'Clear them',
+        onclick: async () => {
+          const ok = await confirmDialog('Clear their dates?', `Removes the dates ${first} sent. Away dates you entered stay.`, 'Clear');
+          if (ok) { staff.clearStaffDates(person.id); redraw(); }
+        },
+      }),
+    ]) : null,
+    el('div', { className: 'row-tight', style: 'flex-wrap:wrap' }, [
+      el('button', {
+        className: 'btn btn-sm', textContent: 'Check now',
+        onclick: async () => {
+          try {
+            const changed = await staff.syncStaff();
+            toast(changed.some((p) => p.id === person.id) ? `New dates from ${first}` : 'Nothing new');
+          } catch (e) { toast(e.message); }
+          redraw();
+        },
+      }),
+      el('button', {
+        className: 'btn btn-sm btn-danger', textContent: 'Make a new link',
+        onclick: async () => {
+          const ok = await confirmDialog('Make a new link?',
+            `The old link stops working straight away. ${first}'s dates are kept. You'll need to send them the new one.`, 'Make new link');
+          if (!ok) return;
+          try { await staff.replaceLink(person.id); toast('New link made. Send it to them.'); } catch (e) { toast(e.message); }
+          redraw();
+        },
+      }),
+    ]),
   ]);
 }
 
