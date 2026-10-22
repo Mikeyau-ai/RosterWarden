@@ -641,37 +641,6 @@ export const store = {
     return saved;
   },
 
-  /**
-   * Create or update a draft: a roster saved before it has been built, so its
-   * name and chosen dates can be picked up again later. It shows in the roster
-   * list marked "Draft". Passing an existing draft's `id` updates it in place
-   * rather than adding a second entry.
-   */
-  saveDraft({ id, name, dates }) {
-    const days = [...new Set(dates || [])].sort();
-    const fields = {
-      orgId: this.data.currentOrgId,
-      name,
-      draft: true,
-      days,
-      startDate: days[0] || null,
-      endDate: days[days.length - 1] || null,
-      assignments: [],
-      notes: [],
-    };
-    const now = new Date().toISOString();
-    const existing = id && this.data.rosters.find((r) => r.id === id && r.draft);
-    if (existing) {
-      Object.assign(existing, fields, { updatedAt: now });
-      this.save();
-      return existing;
-    }
-    const saved = { ...fields, id: newId(), createdAt: now, updatedAt: now };
-    this.data.rosters.push(saved);
-    this.save();
-    return saved;
-  },
-
   /** Apply a patch to a saved roster or draft (e.g. manually edited assignments). */
   updateRoster(id, patch) {
     const r = this.data.rosters.find((x) => x.id === id);

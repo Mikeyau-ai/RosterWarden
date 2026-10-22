@@ -364,9 +364,16 @@ export function calendarPicker(selected, onChange, { openDays = [0, 1, 2, 3, 4, 
     return out;
   };
 
-  /** Add every matching date in this month, or remove them if all are already on. */
+  /**
+   * Add every matching date in this month, or remove them if all are already
+   * on. Days already gone are left out: nobody rosters last Saturday, and a
+   * past date picked by accident only clutters the roster. Tapping one still
+   * picks it, for writing up a roster after the fact.
+   */
   const bulk = (weekdays) => {
-    const dates = monthDatesFor(weekdays);
+    const today = todayISO();
+    const dates = monthDatesFor(weekdays).filter((d) => d >= today);
+    if (dates.length === 0) return;
     const allOn = dates.every((d) => selected.has(d));
     for (const d of dates) {
       if (allOn) selected.delete(d); else selected.add(d);
