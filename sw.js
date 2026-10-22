@@ -30,6 +30,7 @@ const SHELL = [
   './js/scheduler.js',
   './js/ai.js',
   './js/people-import.js',
+  './js/setup.js',
   './js/export.js',
   './js/install.js',
   './js/sync.js',
@@ -46,6 +47,7 @@ const SHELL = [
   './js/staff-link.js',
   './js/views/saved.js',
   './js/views/settings.js',
+  './js/views/wizard.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
