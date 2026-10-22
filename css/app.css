@@ -378,6 +378,11 @@ button:focus-visible {
 }
 .day-shift .swho { flex: 1; }
 .day-shift .swho.gap { color: var(--warn); font-style: italic; }
+/* "+ add" beside a gap: fill it straight from the roster, no Edit needed. */
+.gap-add {
+  margin-left: .4rem; min-height: 30px; padding: .1rem .55rem;
+  font-style: normal; color: var(--accent); border-color: var(--accent);
+}
 
 /* Manual edit: people become removable chips and each shift gets an add picker. */
 .day-shift .swho.edit {

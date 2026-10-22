@@ -230,6 +230,42 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
 }
 
 /**
+ * Offer everyone who could fill an empty place - free that day, not already
+ * on, and able to do the role - and put the one chosen on it. Like any
+ * hand-made change it is locked, so a rebuild keeps it. Someone who doesn't
+ * usually work that weekday is still offered, marked, as a deliberate choice.
+ */
+async function pickToAdd(roster, people, shift, day, roleId, roleById, apply) {
+  const free = candidatesFor(roster, people, day).filter((p) => canDoRole(p, roleId, roleById));
+  const role = roleId != null ? roleById.get(roleId)?.name : null;
+
+  const chosen = await dialog((close) => [
+    el('h2', { textContent: `Add to ${shift.name}${role ? `, ${role}` : ''}` }),
+    el('div', { className: 'faint', textContent: formatDate(day) }),
+    free.length
+      ? el('div', { className: 'list' }, free.map((p) => el('button', {
+        type: 'button', className: 'item', onclick: () => close(p),
+      }, [el('div', { className: 'item-main' }, [
+        el('div', { className: 'item-title', textContent: p.name }),
+        p.availableWeekdays.includes(weekdayOf(day)) ? null
+          : el('div', { className: 'item-sub', textContent: 'usually off this day' }),
+      ])])))
+      : el('div', { className: 'muted', textContent: role
+        ? `Nobody else free that day can do ${role}. Tick more people for it on Team → Skills.`
+        : 'Everyone is either on already or away that day.' }),
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(null) }),
+    ]),
+  ]);
+  if (chosen) {
+    // A shift without roles keeps its places role-free, as the scheduler makes them.
+    const place = { date: day, shiftId: shift.id, personId: chosen.id, locked: true };
+    if (roleId != null) place.roleId = roleId;
+    apply([...roster.assignments, place]);
+  }
+}
+
+/**
  * A card listing everyone who declined on Planning Center, each with a button
  * to replace them. Null when nobody has.
  */
@@ -277,6 +313,16 @@ export function dayCards(roster, people, shifts, apply = null) {
     }) : el('span', { className: reply === 'D' ? 'declined' : '', textContent: label })];
   });
 
+  /**
+   * "+ add" beside a place that is short, so a gap can be filled with a tap
+   * rather than a trip into Edit. Only when the roster can be changed.
+   */
+  const addButton = (day, shift, roleId) => (apply ? el('button', {
+    type: 'button', className: 'btn btn-sm gap-add', textContent: '+ add',
+    'aria-label': `Add someone to ${shift.name}${roleId != null ? `, ${roleById.get(roleId)?.name || ''}` : ''} on ${day}`,
+    onclick: () => pickToAdd(roster, people, shift, day, roleId, roleById, apply),
+  }) : null);
+
   return rosterDays(roster).map((day) => {
     const todays = roster.assignments.filter((a) => a.date === day);
     const extraIds = [...new Set(todays.map((a) => a.shiftId))].filter((id) => !known.has(id));
@@ -288,6 +334,7 @@ export function dayCards(roster, people, shifts, apply = null) {
         if (shift.roles?.length) {
           const listed = new Set(shift.roles.map((r) => r.roleId));
           const places = shift.roles.map((r) => ({
+            roleId: r.roleId,
             label: roleById.get(r.roleId)?.name || '(removed role)', count: r.count,
             mine: here.filter((a) => a.roleId === r.roleId),
           }));
@@ -301,6 +348,7 @@ export function dayCards(roster, people, shifts, apply = null) {
                 `${p.label}: `,
                 ...(p.mine.length ? nameNodes(p.mine) : ['nobody']),
                 short && p.mine.length ? ` (needs ${short} more)` : null,
+                short && p.roleId !== undefined ? addButton(day, shift, p.roleId) : null,
               ]);
             })),
           ]);
@@ -318,6 +366,8 @@ export function dayCards(roster, people, shifts, apply = null) {
           el('span', { className: 'sname', textContent: shift.name }),
           el('span', { className: gap ? 'swho gap' : 'swho' }, [
             ...(here.length ? nameNodes(here) : ['Nobody available']), tail,
+            // A removed shift has nothing left to fill.
+            gap && known.has(shift.id) ? addButton(day, shift, null) : null,
           ]),
         ]);
       });
