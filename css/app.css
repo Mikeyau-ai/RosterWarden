@@ -299,6 +299,7 @@ button:focus-visible {
 /* New Roster: Save draft and Build sit side by side at the foot of the page. */
 .build-actions { display: flex; gap: .5rem; }
 .build-actions > .btn { flex: 1; }
+.build-choices { display: grid; gap: .5rem; }
 
 /* ── requests / days off ─────────────────────────────────────────────── */
 .req-person { padding-top: .7rem; border-top: 1px solid var(--line); }
@@ -444,6 +445,9 @@ pre.roster-text {
   padding: .6rem 1rem; background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .sheet-body { padding: 1rem; max-width: 46rem; margin: 0 auto; display: grid; gap: .8rem; }
+/* Let a wide table (the skills grid) scroll inside its own box instead of
+   stretching the grid column and pushing the whole sheet off the screen. */
+.sheet-body > * { min-width: 0; }
 .fold-head {
   display: flex; width: 100%; align-items: center; justify-content: space-between;
   background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer;
@@ -458,6 +462,33 @@ pre.roster-text {
 .declined { color: var(--bad); text-decoration: line-through; }
 .staff-mode .tabbar, .staff-mode .org-switch { display: none; }
 .setup-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/* ── setup wizard ────────────────────────────────────────────────────── */
+.wiz-progress { display: flex; gap: .3rem; }
+.wiz-progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.wiz-progress .is-done { background: var(--accent-lo); }
+.wiz-progress .is-now { background: var(--accent); }
+.wiz-nav { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.item[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-lo); }
+.item[aria-pressed="true"] .item-chevron { color: var(--accent); }
+.wiz-shift {
+  display: grid; gap: .35rem; padding: .8rem; margin-bottom: .7rem;
+  border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface-2);
+}
+/* Name takes whatever the count, "anyone" tick and remove button leave. */
+.wiz-role { display: grid; grid-template-columns: minmax(0, 1fr) 3.4rem 3.2rem 2rem; align-items: center; gap: .35rem; margin-bottom: .4rem; }
+.wiz-role-head { margin-bottom: .15rem; font-size: .78rem; }
+.wiz-role-head .label { margin: 0; }
+.wiz-role-head .faint { text-align: center; }
+.wiz-role input { min-width: 0; }
+.wiz-role input[type="number"] { padding-left: .4rem; padding-right: .2rem; }
+.wiz-role .btn { padding: .25rem .45rem; }
+.wiz-anyone { display: flex; justify-content: center; align-items: center; min-height: var(--tap); cursor: pointer; }
+.wiz-anyone input { width: 18px; height: 18px; accent-color: var(--accent); }
+.wiz-person { padding: .45rem 0; border-bottom: 1px solid var(--line); }
+.wiz-summary { margin: .4rem 0 0; padding-left: 1.1rem; display: grid; gap: .3rem; }
+/* The welcome screen's "or" between quick start and the guided setup. */
+.or-line { text-align: center; color: var(--ink-faint); font-size: .85rem; margin: .2rem 0; }
 
 /* ── toast + modal ───────────────────────────────────────────────────── */
 .toast {

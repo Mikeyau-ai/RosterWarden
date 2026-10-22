@@ -15,6 +15,7 @@ import {
 } from '../ui.js';
 import { show, refreshOrgs } from '../app.js';
 import * as planningCenter from './planning-center.js';
+import { openWizard } from './wizard.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
 import * as sync from '../sync.js';
 
@@ -32,6 +33,8 @@ const MENU = [
     group: 'Your workplace',   // people and shifts have their own Team tab
     items: [
       { id: 'workplace', label: 'Name and opening hours', hint: 'The days you trade, rename or delete' },
+      // Not a section: opens the setup wizard over Settings.
+      { id: 'wizard', label: 'Set up a new workplace', hint: 'Step by step: hours, shifts, team and skills', run: () => openWizard() },
     ],
   },
   {
@@ -109,7 +112,11 @@ function renderMenu(container) {
     el('label', { className: 'label', textContent: group.group }),
     el('div', { className: 'list' }, group.items.map((item) => el('button', {
       className: 'item',
-      onclick: () => { section = item.id; render(container); },
+      onclick: () => {
+        if (item.run) { item.run(); return; }
+        section = item.id;
+        render(container);
+      },
     }, [
       el('div', { className: 'item-main' }, [
         el('div', { className: 'item-title', textContent: item.label }),

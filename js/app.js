@@ -21,6 +21,8 @@ import * as pco from './sources/planning-center.js';
 import * as staff from './staff.js';
 import { keyFromHash } from './staff-link.js';
 import * as staffPage from './views/staff.js';
+import { openWizard } from './views/wizard.js';
+import { addShifts, templateShifts } from './setup.js';
 
 // Four sections. "Roster" is the rosters you have saved - the thing you open
 // the app to look at - and "New Roster" is the builder. "Team" is who you
@@ -43,6 +45,7 @@ const LEGACY_VIEWS = {
 };
 
 const NEW_ORG = '__new__';
+const NEW_ORG_GUIDED = '__new_guided__';
 
 let current = 'roster';
 
@@ -89,6 +92,12 @@ function welcome() {
     el('button', {
       type: 'submit', className: 'btn btn-primary btn-lg btn-block', textContent: 'Get started',
     }),
+    el('div', { className: 'or-line', textContent: 'or' }),
+    // The guided route: opening hours, shifts, team and skills, one step at a time.
+    el('button', {
+      type: 'button', className: 'btn btn-lg btn-block', textContent: 'Walk me through it step by step',
+      onclick: () => openWizard({ name: nameInput.value.trim(), kind: kindSelect.value }),
+    }),
   ]);
 }
 
@@ -110,18 +119,7 @@ function createOrg(name, kind = 'cafe') {
  * go straight to adding people and press Build.
  */
 function seedDefaults(kind = 'cafe') {
-  if (kind === 'band') {
-    // The usual band, each part on its own role, ticked per person on Team.
-    const shift = store.addShift({ name: 'Service', start: '09:00', end: '11:00', headcount: 1 });
-    for (const [name, count] of [
-      ['Lead singer', 1], ['Backup singer', 2], ['Acoustic guitar', 1],
-      ['Electric guitar', 1], ['Bass', 1], ['Drums', 1], ['Keys', 1],
-    ]) store.setShiftRole(shift.id, store.addRole(name).id, count);
-  } else if (kind === 'blank') {
-    store.addShift({ name: 'Shift', start: '', end: '', headcount: 1 });
-  } else {
-    store.addShift({ name: 'Cafe', start: '08:00', end: '12:00', headcount: 2 });
-  }
+  addShifts(templateShifts(kind));
 }
 
 /** Switch the visible view and update the tab bar. */
@@ -158,6 +156,7 @@ export function refreshOrgs() {
       value: String(o.id), textContent: o.name, selected: o.id === currentId,
     })),
     el('option', { value: NEW_ORG, textContent: '+ New organisation…' }),
+    el('option', { value: NEW_ORG_GUIDED, textContent: '+ New organisation, step by step…' }),
   ]);
   select.hidden = orgs.length === 0;
 }
@@ -169,6 +168,11 @@ async function onOrgChange(event) {
     const name = await promptText('New organisation', 'What do you call this workplace?');
     refreshOrgs();                       // revert the select if they cancelled
     if (name) createOrg(name);
+    return;
+  }
+  if (value === NEW_ORG_GUIDED) {
+    refreshOrgs();                       // the select goes back to the current workplace
+    openWizard();
     return;
   }
   store.setCurrentOrg(Number(value));

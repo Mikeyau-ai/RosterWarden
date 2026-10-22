@@ -197,11 +197,42 @@ export function render(container) {
       roles: store.roles(),
       // Turns in saved rosters count towards who is due next; pinned places are kept on a rebuild.
       history: store.rosters().filter((r) => !r.draft).flatMap((r) => r.assignments || []),
-      locked: keepLocks && built ? built.roster.assignments.filter((a) => a.locked) : [],
+      locked: keepLocks && built ? keptPlaces(built) : [],
     });
+    // Filling in the rest of a hand-made roster shows the finished result, not the editor.
+    if (built?.manual) editing = false;
     built = { roster, days: dates };
     undoStack = [];
     renderResults();
+  };
+
+  /**
+   * Start an empty roster for the picked dates and open it in the editor, to
+   * be filled in by hand. Every place shows as a gap until someone is put on
+   * it, so Things to check doubles as the list of what is left to do.
+   */
+  const onManual = () => {
+    errDiv.textContent = '';
+    if (picked.size === 0) {
+      errDiv.textContent = 'Pick at least one date on the calendar.';
+      return;
+    }
+    const dates = [...picked].sort();
+    const roster = {
+      orgId: org.id,
+      name: nameInput.value.trim() || `Roster ${formatDate(dates[0], { withWeekday: false })}`,
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      days: dates,
+      assignments: [],
+      notes: [],
+    };
+    roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
+    built = { roster, days: dates, manual: true };
+    undoStack = [];
+    editing = true;
+    renderResults();
+    resultsBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   /** Save the current name and dates as a draft, without building. */
@@ -244,20 +275,31 @@ export function render(container) {
     );
   } else {
     buildControl = el('button', {
-      className: 'btn btn-primary btn-lg', textContent: 'Build roster', onclick: onBuild,
+      className: 'btn btn-primary btn-lg btn-block', textContent: 'Build roster', onclick: onBuild,
     });
   }
 
   const ready = shifts.length > 0 && activePeople.length > 0;
   saveDraftBtn.classList.toggle('btn-block', !ready);
+  saveDraftBtn.classList.toggle('btn-lg', !ready);
 
   // Actions live at the foot of the page: fill the form top to bottom, then
-  // save it for later or build it. When ready, the two buttons sit side by
-  // side (Save draft left, Build right). When something is still missing, Save
-  // draft stays (a draft needs nothing set up) and the build pointer drops
-  // below, outside the card, as its own block.
+  // build it, fill it in by hand, or save it for later. When ready, Build is
+  // the big button and the other two sit side by side beneath it. When
+  // something is still missing, Save draft stays (a draft needs nothing set
+  // up) and the build pointer drops below, outside the card, as its own block.
   const actions = ready
-    ? el('div', { className: 'build-actions' }, [saveDraftBtn, buildControl])
+    ? el('div', { className: 'build-choices' }, [
+      buildControl,
+      el('div', { className: 'build-actions' }, [
+        el('button', { type: 'button', className: 'btn', textContent: 'Fill in by hand', onclick: onManual }),
+        saveDraftBtn,
+      ]),
+      el('div', {
+        className: 'faint',
+        textContent: 'Build shares the shifts out fairly for you. By hand, you choose who goes where.',
+      }),
+    ])
     : saveDraftBtn;
 
   const deleteDraftBtn = draft ? el('button', {
@@ -457,6 +499,16 @@ function availabilityNotes(container) {
   ]);
 }
 
+/**
+ * The places a rebuild must keep: the locked ones, or on a roster being
+ * filled in by hand, everyone placed so far - those were all chosen on purpose.
+ */
+function keptPlaces({ roster, manual }) {
+  return manual
+    ? roster.assignments.map((a) => ({ ...a, locked: true }))
+    : roster.assignments.filter((a) => a.locked);
+}
+
 /** Build the day-by-day result view, tally and action buttons for `built`. */
 function buildResultView(container, rerender, fixes) {
   const { roster } = built;
@@ -501,7 +553,12 @@ function buildResultView(container, rerender, fixes) {
         rerender();
       },
     }) : null,
-    roster.assignments.some((a) => a.locked) ? el('button', {
+    // By hand: the scheduler can take over the places still empty. Otherwise:
+    // refill everything except the locked places.
+    built.manual ? el('button', {
+      className: 'btn', textContent: 'Fill the rest for me',
+      onclick: () => fixes.rebuild(),
+    }) : roster.assignments.some((a) => a.locked) ? el('button', {
       className: 'btn', textContent: 'Rebuild around locked',
       onclick: () => fixes.rebuild(),
     }) : null,
@@ -510,6 +567,11 @@ function buildResultView(container, rerender, fixes) {
 
   // A shortfall must be impossible to miss, so it goes above the schedule.
   return [
+    built.manual && editing ? el('div', { className: 'notice' }, [
+      el('strong', { textContent: 'Filling in by hand' }),
+      el('div', { textContent: 'Use “+ add” on each shift to put someone on. Everyone free that day is listed. '
+        + 'Stuck? “Fill the rest for me” keeps who you placed and fills the gaps fairly.' }),
+    ]) : null,
     notesBox(roster),
     editing ? null : declinedCard(roster, people, shifts, change),
     editing ? null : gapFixes(roster, people, shifts, fixes),

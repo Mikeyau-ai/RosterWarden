@@ -36,6 +36,13 @@ Four sections:
    cafe (one shift of two people), a worship team (a service with lead singer,
    backup singers, guitars, bass, drums and keys) or blank. You can have more
    than one workplace; the dropdown at the top switches between them.
+
+   Or tap **Walk me through it step by step** for the setup wizard: name and
+   starting point, opening days and hours, shifts and their roles, the team (a
+   pasted list), and who can do which role, then a summary before anything is
+   created. Cancelling part-way keeps nothing. It is also under **Settings →
+   Set up a new workplace** and **+ New organisation, step by step…** in the
+   dropdown. Steps 2–4 below are what it fills in for you.
 2. **People** (Team tab): everyone starts available every day; untick the days
    they can't do. **Add several** takes a pasted list of names (one per line,
    with an optional `- Sat, Sun`). Or bring a team in from Planning Center
@@ -48,6 +55,11 @@ Four sections:
    "4 people · 2 shifts · Who can do what" buttons open the Team screen over the
    roster you're building, so fixing set-up never loses your dates. Save it and
    it appears under **Roster**.
+
+   To choose everyone yourself, press **Fill in by hand** instead: the roster
+   opens empty in the editor, with a "+ add" picker on every place listing who
+   is free that day and can do the role. **Fill the rest for me** keeps everyone
+   you placed (locked) and lets the scheduler fill the gaps fairly.
 
 ### A person's page
 
@@ -267,6 +279,7 @@ node --test tests/*.mjs
 | Planning Center | `js/sources/planning-center.js` (API), `js/views/planning-center.js` (screens) |
 | Staff availability links | `js/staff-link.js` (keys, mailboxes), `js/staff.js` (owner side), `js/views/staff.js` (staff page) |
 | Team tab | `js/views/team.js` (People, Shifts, Skills), `js/views/people.js`, `js/views/shifts.js` |
+| Setup wizard + starting templates | `js/views/wizard.js` (screens), `js/setup.js` (templates, creating the workplace) |
 | AI assist | `js/ai.js` |
 | Shared widgets | `js/ui.js` |
 | Roster display + editing | `js/views/roster-parts.js` |
