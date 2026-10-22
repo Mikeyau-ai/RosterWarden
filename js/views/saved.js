@@ -1,16 +1,20 @@
 /**
- * Roster screen: browse the rosters you have saved, and open one to review,
- * copy, share, or delete it. Follows the same list-then-detail pattern as
- * the People screen - there is no side-by-side layout on a phone.
+ * Roster screen: the rosters you have, and the one place a roster is looked
+ * at and worked on - checked, edited, rebuilt, shared, rolled on to the next
+ * one, renamed or deleted. Building on New Roster saves the result and opens
+ * it here, so a roster you just built and one from last month behave the same.
+ * Follows the same list-then-detail pattern as the People screen - there is no
+ * side-by-side layout on a phone.
  */
 import { store } from '../store.js';
-import { formatDate, auditRoster, toDays, fromDays } from '../scheduler.js';
-import { el, fill, toast, confirmDialog, emptyState } from '../ui.js';
+import { formatDate, auditRoster, buildRoster, toDays, fromDays } from '../scheduler.js';
+import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet } from '../ui.js';
 import {
-  editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton,
+  editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
 import { show } from '../app.js';
 import * as builderView from './roster.js';
+import * as teamView from './team.js';
 import * as sync from '../sync.js';
 
 // Id of the saved roster currently open, or null when showing the list.
@@ -19,6 +23,15 @@ let openId = null;
 // Whether the open roster is in manual-edit mode. Reset whenever the list is
 // shown or a different roster is opened.
 let editing = false;
+
+/**
+ * Open a roster on the next render - used by New Roster straight after a
+ * build. `edit` starts it in the editor (a roster to fill in by hand).
+ */
+export function openRoster(id, { edit = false } = {}) {
+  openId = id;
+  editing = edit;
+}
 
 /** Entry point: render the list, or the opened roster, into `container`. */
 export function render(container) {
@@ -135,52 +148,113 @@ function draftRow(r) {
   ]);
 }
 
+/** The dates a roster covers, oldest first. */
+function rosterDates(roster) {
+  return [...(roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))])].sort();
+}
+
 /**
  * Start the next roster from this one: the same days of the week, moved on by
- * whole weeks past its last day, as a draft in the builder to check and build.
+ * whole weeks past its last day, picked on New Roster ready to build.
  */
 function rollForward(roster) {
-  const days = [...(roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))])].sort();
+  const days = rosterDates(roster);
   if (days.length === 0) return;
   const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
   const step = Math.ceil(span / 7) * 7;
-  const dates = days.map((d) => fromDays(toDays(d) + step));
-  const draft = store.saveDraft({ name: `Roster ${formatDate(dates[0], { withWeekday: false })}`, dates });
-  builderView.openDraft(draft.id);
+  builderView.startWith(days.map((d) => fromDays(toDays(d) + step)));
   show('new');
+}
+
+/**
+ * Refill a roster's dates with the scheduler, keeping the places it must:
+ * the locked ones, or on a roster being filled in by hand, everyone placed so
+ * far. Returns the new assignments and notes; nothing is saved here.
+ */
+function refill(roster) {
+  const kept = roster.byHand
+    ? roster.assignments.map((a) => ({ ...a, locked: true }))
+    : roster.assignments.filter((a) => a.locked);
+  const fresh = buildRoster({
+    orgId: roster.orgId, name: roster.name, dates: rosterDates(roster),
+    people: store.people(), shifts: store.shifts(), clashes: store.clashes(), roles: store.roles(),
+    // Other saved rosters count towards who is due next. This one's own
+    // current turns must not, or everyone on it would look over-used.
+    history: store.rosters().filter((r) => !r.draft && r.id !== roster.id).flatMap((r) => r.assignments || []),
+    locked: kept,
+  });
+  return { assignments: fresh.assignments, notes: fresh.notes };
 }
 
 // Earlier assignments of the open roster, newest last, for Undo.
 const undo = { id: null, stack: [] };
 
-/** Build the full day-by-day view of one saved roster, plus its actions. */
+/** Build the full day-by-day view of one roster, plus everything you can do with it. */
 function renderOpen(roster, container) {
   const people = store.people();
   const shifts = store.shifts();
+  const redraw = () => render(container);
 
   const back = el('button', {
     className: 'btn btn-ghost', textContent: '← Rosters',
-    onclick: () => { openId = null; render(container); },
+    onclick: () => { openId = null; redraw(); },
   });
+
+  /** Remember the current assignments for Undo before they change. */
+  const remember = () => {
+    if (undo.id !== roster.id) { undo.id = roster.id; undo.stack = []; }
+    undo.stack.push(roster.assignments);
+  };
 
   /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
   const change = (next) => {
-    if (undo.id !== roster.id) { undo.id = roster.id; undo.stack = []; }
-    undo.stack.push(roster.assignments);
+    remember();
     store.updateRoster(roster.id, {
       assignments: next,
       notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
     });
-    render(container);
+    redraw();
   };
+
+  /** Refill the roster around what it keeps, and show the result. */
+  const rebuild = () => {
+    remember();
+    // Read it afresh: Fill the gaps ticks someone for a role just before this.
+    const current = store.roster(roster.id);
+    store.updateRoster(roster.id, { ...refill(current), byHand: false });
+    editing = false;
+    toast(current.byHand ? 'Filled the rest — your picks are kept' : 'Rebuilt around the locked places');
+    redraw();
+  };
+
+  /** The who-can-do-what grid over this screen; closing it redraws the roster. */
+  const openSkills = () => {
+    teamView.openSection('skills');
+    openSheet('Who you roster', (body) => teamView.render(body), redraw);
+  };
+
+  /** Rename by tapping the title. */
+  const rename = async () => {
+    const name = await promptText('Rename roster', 'Name', roster.name);
+    if (!name) return;
+    store.updateRoster(roster.id, { name });
+    redraw();
+  };
+
   const cards = editing
     ? editableDayCards(roster, people, shifts, change)
     : dayCards(roster, people, shifts, change);
 
+  // The everyday actions sit right under the title, so sharing or fixing a
+  // roster never means scrolling past it. Rarer ones wait at the foot.
   const actions = [
+    exportButton(roster, people, shifts, (replies) => {
+      store.updateRoster(roster.id, { responses: replies });
+      redraw();
+    }),
     el('button', {
       className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
-      onclick: () => { editing = !editing; render(container); },
+      onclick: () => { editing = !editing; redraw(); },
     }),
     undo.id === roster.id && undo.stack.length ? el('button', {
       className: 'btn', textContent: 'Undo',
@@ -190,13 +264,19 @@ function renderOpen(roster, container) {
           assignments: prev,
           notes: auditRoster({ ...roster, assignments: prev }, store.people(), store.shifts(), store.roles()),
         });
-        render(container);
+        redraw();
       },
     }) : null,
-    exportButton(roster, people, shifts, (replies) => {
-      store.updateRoster(roster.id, { responses: replies });
-      render(container);
-    }),
+    // By hand: the scheduler can take over the places still empty. Otherwise:
+    // refill everything except the locked places.
+    roster.byHand ? el('button', {
+      className: 'btn btn-primary', textContent: 'Fill the rest for me', onclick: rebuild,
+    }) : roster.assignments.some((a) => a.locked) ? el('button', {
+      className: 'btn', textContent: 'Rebuild around locked', onclick: rebuild,
+    }) : null,
+  ];
+
+  const footer = [
     el('button', {
       className: 'btn', textContent: 'Next one',
       onclick: () => rollForward(roster),
@@ -209,19 +289,30 @@ function renderOpen(roster, container) {
         store.deleteRoster(roster.id);
         openId = null;
         toast('Deleted');
-        render(container);
+        redraw();
       },
     }),
   ];
 
   return [
     back,
-    el('h2', { textContent: roster.name }),
+    el('button', {
+      type: 'button', className: 'title-btn', onclick: rename, 'aria-label': `Rename ${roster.name}`,
+    }, [el('h2', { textContent: roster.name }), el('span', { className: 'faint', textContent: '✎', 'aria-hidden': 'true' })]),
+    el('div', { className: 'row' }, actions),
+    roster.byHand && editing ? el('div', { className: 'notice' }, [
+      el('strong', { textContent: 'Filling in by hand' }),
+      el('div', {
+        textContent: 'Use “+ add” on each shift to put someone on; everyone free that day is listed. '
+          + '“Fill the rest for me” keeps who you placed and fills the gaps fairly.',
+      }),
+    ]) : null,
     // Checked afresh each time, so a date someone sent since it was saved shows here.
     notesBox({ ...roster, notes: auditRoster(roster, people, shifts, store.roles()) }),
     editing ? null : declinedCard(roster, people, shifts, change),
+    editing ? null : gapFixes(roster, people, shifts, { rebuild, openSkills }),
     ...cards,
     tally(roster, people, shifts),
-    el('div', { className: 'row' }, actions),
+    el('div', { className: 'row' }, footer),
   ];
 }

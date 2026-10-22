@@ -60,6 +60,9 @@ export function render() {
   }
   VIEWS[current].render(container);
   container.scrollTop = 0;
+  // On a phone it is the page that scrolls, not <main>: without this, opening
+  // a roster from the foot of New Roster lands at the foot of the roster.
+  window.scrollTo(0, 0);
 }
 
 /** First-run screen: name the workplace right here, no pop-up. */

@@ -23,8 +23,9 @@ like an installed app: full screen, its own icon, and it works with no signal.
 
 Four sections:
 
-- **Roster**: the rosters you've saved. This is what you open it to look at.
-- **New Roster**: the calendar and the Build button.
+- **Roster**: your rosters, and everything you do with one: check, edit,
+  rebuild, share, rename. This is what you open it to look at.
+- **New Roster**: the calendar and the Build button, nothing else.
 - **Team**: People, Shifts (with their roles), and Skills, a grid of who can do
   which role.
 - **Settings**, in three groups:
@@ -51,15 +52,17 @@ Four sections:
 3. **Shifts** (Team tab): the blocks of work a day is made of, e.g. `Cafe
    08:00–12:00, 2 people needed`, filled in the order listed. **Copy** duplicates
    a shift with its roles.
-4. **New Roster**: tap the dates on the calendar, press **Build**. The
-   "4 people · 2 shifts · Who can do what" buttons open the Team screen over the
-   roster you're building, so fixing set-up never loses your dates. Save it and
-   it appears under **Roster**.
+4. **New Roster**: tap the dates on the calendar, press **Build roster** (always
+   pinned at the foot of the screen). It's saved straight away and opens under
+   **Roster**; there is no separate Save. The "4 people · 2 shifts · Who can do
+   what" buttons open the Team screen over the calendar, so fixing set-up never
+   loses your dates. The quick-pick buttons (All open days, Saturdays...) skip
+   days already gone; tap a past date yourself if you really want one.
 
    To choose everyone yourself, press **Fill in by hand** instead: the roster
-   opens empty in the editor, with a "+ add" picker on every place listing who
-   is free that day and can do the role. **Fill the rest for me** keeps everyone
-   you placed (locked) and lets the scheduler fill the gaps fairly.
+   is saved empty and opens in the editor, with a "+ add" picker on every place
+   listing who is free that day and can do the role. **Fill the rest for me**
+   keeps everyone you placed (locked) and lets the scheduler fill the gaps fairly.
 
 ### A person's page
 
@@ -88,25 +91,33 @@ up on backing vocals. Roles belong to the workplace, so "Guitar" on the 9am and
 
 ### After building
 
+A roster you just built and one from months ago open on the same screen and
+can do the same things. **Share / export** and **Edit** sit right under the
+name; tap the name to rename it.
+
 - **Things to check** (folded until opened) lists what couldn't be done.
   **Fill the gaps** turns "Drums: short on 2 days" into a picker of who else
   could do it: choosing one ticks them for the role and rebuilds.
 - **Tap any name** to replace them with someone free that day who can do the
   role, swap them with someone else on that day, take them off, or lock them in.
   A hand-made change is locked (🔒), and **Rebuild around locked** keeps it while
-  refilling the rest. **Undo** steps back through edits and swaps.
+  refilling the rest (a rebuild leaves the roster's own old turns out of the
+  fairness count). **Undo** steps back through edits, swaps and rebuilds.
 - **Share / export**: a group message, each person's shifts, **Message each
   person** (their own dates, with Text and Email buttons when you've saved their
   mobile or email), print or PDF, a calendar file, a spreadsheet, and Planning
   Center (below).
 - The tally shows shifts and hours per person, and an estimated pay total when
   anyone has a pay rate.
-- On a saved roster, **Next one** starts a draft with the same days moved on by
-  whole weeks. Saved rosters re-check themselves when opened, so someone who is
+- **Next one** opens New Roster with the same days moved on by whole weeks,
+  ready to build. Rosters re-check themselves when opened, so someone who is
   now away on a day they're rostered shows up in Things to check.
+- Drafts saved by older versions still show in the list marked "Draft" and
+  open on New Roster; building one replaces it.
 
-Every section (the calendar, requests, the roster, the warnings) folds away
-with its arrow; everything starts open except the warnings.
+The calendar and the warnings fold away with their arrows. Requests and days
+off starts folded, with what's set shown on its line ("1 asked to work · 2
+can't").
 
 ### Staff availability links
 

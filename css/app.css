@@ -30,6 +30,7 @@
   --radius:  10px;
   --radius-s: 7px;
   --tap:     44px;        /* minimum comfortable touch target */
+  --tabbar-h: 3.5rem;     /* the phone tab bar, which pinned bars sit above */
   --maxw:    56rem;
 
   --shadow: 0 6px 24px rgba(0,0,0,.35);
@@ -296,10 +297,25 @@ button:focus-visible {
   background: var(--accent-lo); color: var(--accent);
 }
 
-/* New Roster: Save draft and Build sit side by side at the foot of the page. */
+/* New Roster: "Fill in by hand" and "Build roster" side by side, pinned just
+   above the tab bar so Build is always in reach however long the page is. */
 .build-actions { display: flex; gap: .5rem; }
-.build-actions > .btn { flex: 1; }
-.build-choices { display: grid; gap: .5rem; }
+.build-actions > .btn { flex: 1; min-height: 50px; }
+.build-bar {
+  position: sticky; z-index: 10;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + .5rem);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: .6rem; box-shadow: var(--shadow);
+}
+.build-bar .err:empty { display: none; }
+.build-bar .err { margin-bottom: .4rem; }
+
+/* A roster's name, tapped to rename it. */
+.title-btn {
+  display: flex; align-items: baseline; gap: .5rem;
+  background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left;
+}
+.title-btn h2 { margin: 0; }
 
 /* ── requests / days off ─────────────────────────────────────────────── */
 .req-person { padding-top: .7rem; border-top: 1px solid var(--line); }
@@ -533,6 +549,7 @@ pre.roster-text {
   .appbar { position: static; }
   body { display: flex; flex-direction: column; }
   .view { padding-bottom: 3rem; width: 100%; }
+  .build-bar { bottom: 1rem; }      /* no tab bar at the foot to clear here */
   .toast { bottom: 2rem; }
   .grid-2 { grid-template-columns: 1fr 1fr; }
 }

@@ -1,9 +1,12 @@
 /**
- * New Roster screen: the builder. Tap the dates to roster on the
- * calendar, build a roster, then save/copy/share it. This is the single most
- * used screen, so the common weekend-cafe case stays quick: the month's
- * "Weekends" button fills a month in one tap, and individual dates can then
- * be switched off for the weekends the cafe is closed.
+ * New Roster screen: pick the dates, then build. That is all it does - the
+ * built roster is saved straight away and opens on the Roster screen, the one
+ * place a roster is checked, edited, shared and rebuilt.
+ *
+ * This is the most used screen, so the common weekend-cafe case stays quick:
+ * "All open days" fills a month in one tap, individual dates can then be
+ * switched off, and the Build button is always in reach at the foot of the
+ * screen. Requests and days off fold into one line until they're wanted.
  */
 import { store } from '../store.js';
 import {
@@ -13,26 +16,18 @@ import { parseAvailability, describe, AIError } from '../ai.js';
 import {
   el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet, collapsible,
 } from '../ui.js';
-import {
-  editableDayCards, dayCards, tally, notesBox, gapFixes, declinedCard, exportButton,
-} from './roster-parts.js';
 import { show } from '../app.js';
 import * as teamView from './team.js';
+import * as savedView from './saved.js';
 
-// The most recently built roster, kept across re-renders (e.g. after Save)
-// so the result isn't lost. `days` is the exact list of rostered dates used
-// to build it. Cleared whenever the current organisation changes.
-let built = null;
-let builtOrgId = null;
-
-// The calendar selection, likewise kept across re-renders so building or
-// saving doesn't clear the dates the user just tapped.
+// The calendar selection, kept across re-renders (and trips to other tabs)
+// until a roster is built from it.
 let picked = new Set();
 let pickedOrgId = null;
 
-// The draft currently being continued, if any: saving writes back to it
-// instead of making a new entry, and building then saving replaces it.
-// `pendingDraftId` is set by openDraft() and consumed on the next render.
+// A draft saved by an older version, being continued: its name and dates fill
+// the form, and building from it replaces it. `pendingDraftId` is set by
+// openDraft() and consumed on the next render.
 let draftId = null;
 let pendingDraftId = null;
 
@@ -41,35 +36,32 @@ export function openDraft(id) {
   pendingDraftId = id;
 }
 
-// A name the user typed, held while a set-up sheet is open over the builder
-// (closing it redraws the page) and used once on that redraw.
-let keptName = null;
+// Dates handed over by another screen ("Next one"), picked on the next render.
+let pendingDates = null;
 
-// Earlier states of the built roster's assignments, newest last, for Undo.
-let undoStack = [];
+/** Open New Roster with these dates already picked. */
+export function startWith(dates) {
+  pendingDates = [...dates];
+}
 
 // Whether the requests/days-off section is expanded, kept across its rebuilds.
-let requestsOpen = true;
+// Folded by default: it is a grid of everyone against every date, and the
+// usual roster needs none of it.
+let requestsOpen = false;
 
-// Whether the built roster is in manual-edit mode. Kept across the result
-// section's own re-renders, reset on a full page render (leaving/returning).
-let editing = false;
+/** "Roster 4 Oct 2026" for a roster starting on `first`. */
+function autoName(first) {
+  return `Roster ${formatDate(first, { withWeekday: false })}`;
+}
 
-/** Entry point: render the build form, optional AI notes box, and any result. */
+/** Entry point: the calendar, requests, and the Build controls. */
 export function render(container) {
-  editing = false;                 // a fresh page render always starts read-only
   const org = store.currentOrg();
-  if (builtOrgId !== org.id) {
-    built = null;
-    builtOrgId = org.id;
-  }
   // A draft belongs to one organisation; switching away abandons it.
   if (pickedOrgId !== org.id) draftId = null;
 
-  const start = todayISO();
-
-  // Loading a draft: pull its name and dates into the form, then forget the
-  // request so ordinary re-renders (Save, AI apply) don't keep resetting it.
+  // Loading a draft: pull its dates into the calendar, then forget the
+  // request so ordinary re-renders don't keep resetting it.
   if (pendingDraftId != null) {
     const d = store.roster(pendingDraftId);
     pendingDraftId = null;
@@ -77,22 +69,21 @@ export function render(container) {
       draftId = d.id;
       picked = new Set(d.days || []);
       pickedOrgId = org.id;
-      built = null;
     }
   }
+  if (pendingDates) {
+    picked = new Set(pendingDates);
+    pickedOrgId = org.id;
+    draftId = null;
+    pendingDates = null;
+  }
 
-  // The dates to roster, chosen on the calendar. Kept across re-renders of the
-  // result section so a build doesn't wipe the selection.
+  // A different organisation starts with nothing picked.
   if (pickedOrgId !== org.id) {
     picked = new Set();
     pickedOrgId = org.id;
   }
-
   const draft = draftId != null ? store.roster(draftId) : null;
-  const nameInput = el('input', {
-    type: 'text',
-    value: keptName ?? (draft ? draft.name : `Roster ${formatDate(start, { withWeekday: false })}`),
-  });
 
   const summary = el('div', { className: 'faint' });
   const clearBtn = el('button', {
@@ -105,7 +96,7 @@ export function render(container) {
   const requestsWrap = el('div');
   const refreshRequests = () => { fill(requestsWrap, requestsSection(container)); };
 
-  /** Update the "N dates picked" line and the suggested roster name. */
+  /** Update the "N dates picked" line and the requests under the calendar. */
   const refreshSummary = () => {
     refreshRequests();
     const n = picked.size;
@@ -117,13 +108,6 @@ export function render(container) {
         : `${n} dates picked — ${formatDate(sorted[0], { withWeekday: false })} to ` +
           `${formatDate(sorted[n - 1], { withWeekday: false })}`;
     clearBtn.disabled = n === 0;
-
-    // Keep the suggested name in step with the first date, but stop the moment
-    // the user types their own - a roster they named "Christmas" must not get
-    // silently renamed when they nudge the dates.
-    if (nameIsAuto) {
-      nameInput.value = `Roster ${formatDate(sorted[0] || start, { withWeekday: false })}`;
-    }
   };
 
   const calendarWrap = el('div');
@@ -132,24 +116,16 @@ export function render(container) {
     fill(calendarWrap, calendarPicker(picked, refreshSummary, { openDays: store.openDays() }));
     refreshSummary();
   };
-
-  // A draft carries a name the user chose (or accepted), so don't overwrite it
-  // as the dates change; a fresh roster's name tracks the first date until typed.
-  let nameIsAuto = !draft && keptName == null;
-  keptName = null;
-  nameInput.addEventListener('input', () => { nameIsAuto = false; });
-
   refreshCalendar();
 
   const activePeople = store.people().filter((p) => p.active);
   const shifts = store.shifts();
   /**
    * Open the Team screen as a sheet over this one, so people, shifts and roles
-   * can be fixed without leaving the roster being built. Closing it redraws
+   * can be fixed without leaving the dates being picked. Closing it redraws
    * the page with the new counts; the dates picked are kept.
    */
   const openTeam = (part) => {
-    if (!nameIsAuto) keptName = nameInput.value;
     teamView.openSection(part);
     openSheet('Who you roster', (body) => teamView.render(body), () => render(container));
   };
@@ -170,40 +146,48 @@ export function render(container) {
   ]);
 
   const errDiv = el('div', { className: 'err' });
-  const resultsBox = el('div');
 
-  /** Redraw just the result section, without disturbing the form above it. */
-  const renderResults = () => {
-    fill(resultsBox, built
-      ? buildResultView(container, renderResults, { rebuild: () => onBuild(true), openSkills: () => openTeam('skills') })
-      : []);
-  };
-
-  /** Build the roster from the current form values and show the result. */
-  const onBuild = (keepLocks = false) => {
+  /** The picked dates, sorted, or null (with a message) when there are none. */
+  const datesOrComplain = () => {
     errDiv.textContent = '';
     if (picked.size === 0) {
       errDiv.textContent = 'Pick at least one date on the calendar.';
-      return;
+      return null;
     }
-    const dates = [...picked].sort();
-    const roster = buildRoster({
+    return [...picked].sort();
+  };
+
+  /**
+   * Save a new roster and open it on the Roster screen. A draft it was built
+   * from is replaced by it, and the dates are cleared ready for the next one.
+   */
+  const finish = (roster, { edit = false } = {}) => {
+    if (draftId != null) {
+      store.deleteRoster(draftId);
+      draftId = null;
+    }
+    const saved = store.saveRoster(roster);
+    picked = new Set();
+    savedView.openRoster(saved.id, { edit });
+    show('roster');
+    toast(edit ? 'Put people on each shift, or let it fill the rest' : 'Built and saved');
+  };
+
+  /** Build the roster for the picked dates, save it, and open it. */
+  const onBuild = () => {
+    const dates = datesOrComplain();
+    if (!dates) return;
+    finish(buildRoster({
       orgId: org.id,
-      name: nameInput.value.trim() || `Roster ${formatDate(dates[0], { withWeekday: false })}`,
+      name: draft?.name || autoName(dates[0]),
       people: store.people(),
       shifts: store.shifts(),
       clashes: store.clashes(),
       dates,
       roles: store.roles(),
-      // Turns in saved rosters count towards who is due next; pinned places are kept on a rebuild.
+      // Turns in saved rosters count towards who is due next.
       history: store.rosters().filter((r) => !r.draft).flatMap((r) => r.assignments || []),
-      locked: keepLocks && built ? keptPlaces(built) : [],
-    });
-    // Filling in the rest of a hand-made roster shows the finished result, not the editor.
-    if (built?.manual) editing = false;
-    built = { roster, days: dates };
-    undoStack = [];
-    renderResults();
+    }));
   };
 
   /**
@@ -212,50 +196,26 @@ export function render(container) {
    * it, so Things to check doubles as the list of what is left to do.
    */
   const onManual = () => {
-    errDiv.textContent = '';
-    if (picked.size === 0) {
-      errDiv.textContent = 'Pick at least one date on the calendar.';
-      return;
-    }
-    const dates = [...picked].sort();
+    const dates = datesOrComplain();
+    if (!dates) return;
     const roster = {
       orgId: org.id,
-      name: nameInput.value.trim() || `Roster ${formatDate(dates[0], { withWeekday: false })}`,
+      name: draft?.name || autoName(dates[0]),
       startDate: dates[0],
       endDate: dates[dates.length - 1],
       days: dates,
       assignments: [],
       notes: [],
+      // Marks it as being filled in by hand until the scheduler fills the rest.
+      byHand: true,
     };
     roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
-    built = { roster, days: dates, manual: true };
-    undoStack = [];
-    editing = true;
-    renderResults();
-    resultsBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    finish(roster, { edit: true });
   };
 
-  /** Save the current name and dates as a draft, without building. */
-  const onSaveDraft = () => {
-    const dates = [...picked].sort();
-    const name = nameInput.value.trim()
-      || `Roster ${formatDate(dates[0] || start, { withWeekday: false })}`;
-    const rec = store.saveDraft({ id: draftId, name, dates });
-    draftId = rec.id;
-    toast(draft ? 'Draft updated' : 'Draft saved');
-    show('roster');
-  };
-
-  const saveDraftBtn = el('button', {
-    type: 'button', className: 'btn btn-lg',
-    textContent: draft ? 'Update draft' : 'Save draft',
-    onclick: onSaveDraft,
-  });
-
-  // The build control is either the big primary button, or - if the org has
-  // nothing to schedule yet - a pointer to the screen that fixes it. Either
-  // way the scheduler is never invoked with nothing to work with. A draft can
-  // still be saved with nothing set up, so Save draft sits outside this.
+  // The build controls, pinned to the foot of the screen - or, if the org
+  // has nothing to schedule yet, a pointer to the screen that fixes it, so the
+  // scheduler is never invoked with nothing to work with.
   let buildControl;
   if (shifts.length === 0) {
     buildControl = emptyState(
@@ -274,69 +234,37 @@ export function render(container) {
       })
     );
   } else {
-    buildControl = el('button', {
-      className: 'btn btn-primary btn-lg btn-block', textContent: 'Build roster', onclick: onBuild,
-    });
-  }
-
-  const ready = shifts.length > 0 && activePeople.length > 0;
-  saveDraftBtn.classList.toggle('btn-block', !ready);
-  saveDraftBtn.classList.toggle('btn-lg', !ready);
-
-  // Actions live at the foot of the page: fill the form top to bottom, then
-  // build it, fill it in by hand, or save it for later. When ready, Build is
-  // the big button and the other two sit side by side beneath it. When
-  // something is still missing, Save draft stays (a draft needs nothing set
-  // up) and the build pointer drops below, outside the card, as its own block.
-  const actions = ready
-    ? el('div', { className: 'build-choices' }, [
-      buildControl,
+    buildControl = el('div', { className: 'build-bar' }, [
+      errDiv,
       el('div', { className: 'build-actions' }, [
         el('button', { type: 'button', className: 'btn', textContent: 'Fill in by hand', onclick: onManual }),
-        saveDraftBtn,
+        el('button', { type: 'button', className: 'btn btn-primary', textContent: 'Build roster', onclick: onBuild }),
       ]),
-      el('div', {
-        className: 'faint',
-        textContent: 'Build shares the shifts out fairly for you. By hand, you choose who goes where.',
-      }),
-    ])
-    : saveDraftBtn;
+    ]);
+  }
 
+  // Only a draft from an older version needs this; new rosters have no drafts.
   const deleteDraftBtn = draft ? el('button', {
     type: 'button', className: 'btn btn-sm btn-danger', textContent: 'Delete draft',
-    style: 'margin-top:.6rem',
     onclick: async () => {
       const ok = await confirmDialog('Delete draft?', 'This cannot be undone.', 'Delete');
       if (!ok) return;
       store.deleteRoster(draftId);
       draftId = null;
       picked.clear();
-      built = null;
       toast('Draft deleted');
       show('roster');
     },
   }) : null;
 
   const formCard = el('div', { className: 'card' }, [
-    el('div', {}, [el('label', { className: 'label', textContent: 'Roster name' }), nameInput]),
-    el('div', {}, [
-      collapsible('dates', 'Dates to roster', calendarWrap, { className: '' }),
-      el('div', { className: 'spread', style: 'margin-top:.6rem' }, [summary, clearBtn]),
-    ]),
+    draft ? el('div', { className: 'spread' }, [el('strong', { textContent: draft.name }), deleteDraftBtn]) : null,
+    collapsible('dates', 'Dates to roster', calendarWrap, { className: '' }),
+    el('div', { className: 'spread', style: 'margin-top:.6rem' }, [summary, clearBtn]),
+    readiness,
   ]);
 
-  const actionCard = el('div', { className: 'card' }, [
-    readiness, errDiv, actions, deleteDraftBtn,
-  ]);
-
-  renderResults();
-  fill(container, [
-    formCard,
-    requestsWrap,
-    actionCard,
-    ready ? null : buildControl,
-    resultsBox,
-  ]);
+  fill(container, [formCard, requestsWrap, buildControl]);
 }
 
 /**
@@ -358,7 +286,25 @@ function requestsSection(container) {
   // having it snap shut mid-edit would be maddening.
   const details = el('details', { className: 'card', open: requestsOpen });
   details.addEventListener('toggle', () => { requestsOpen = details.open; });
-  details.append(el('summary', { textContent: 'Requests and days off' }));
+
+  // What is already set for these dates, on the folded line, so it says
+  // whether it is worth opening: "2 asked to work · 1 can't".
+  const counts = el('span', { className: 'faint' });
+  const refreshCounts = () => {
+    let asked = 0;
+    let off = 0;
+    for (const person of people) {
+      for (const date of dates) {
+        const state = store.dateState(person.id, date);
+        if (state === 'wants') asked += 1;
+        else if (state !== 'neutral') off += 1;
+      }
+    }
+    const parts = [asked ? `${asked} asked to work` : null, off ? `${off} can’t` : null].filter(Boolean);
+    counts.textContent = parts.length ? ` · ${parts.join(' · ')}` : dates.length ? ' · none yet' : '';
+  };
+  refreshCounts();
+  details.append(el('summary', {}, ['Requests and days off', counts]));
 
   if (dates.length === 0 || people.length === 0) {
     details.append(el('div', {
@@ -405,6 +351,7 @@ function requestsSection(container) {
             store.removeBlackoutOnDate(person.id, date);
           }
           drawChips();
+          refreshCounts();
         });
         return chip;
       }));
@@ -497,86 +444,4 @@ function availabilityNotes(container) {
     el('div', { className: 'req-name', textContent: 'Or paste a message' }),
     textarea, aiBtn, err,
   ]);
-}
-
-/**
- * The places a rebuild must keep: the locked ones, or on a roster being
- * filled in by hand, everyone placed so far - those were all chosen on purpose.
- */
-function keptPlaces({ roster, manual }) {
-  return manual
-    ? roster.assignments.map((a) => ({ ...a, locked: true }))
-    : roster.assignments.filter((a) => a.locked);
-}
-
-/** Build the day-by-day result view, tally and action buttons for `built`. */
-function buildResultView(container, rerender, fixes) {
-  const { roster } = built;
-  const people = store.people();
-  const shifts = store.shifts();
-
-  /** Take a changed list of assignments (an edit or a swap), re-check it and redraw. */
-  const change = (next) => {
-    undoStack.push(roster.assignments);
-    roster.assignments = next;
-    roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
-    rerender();
-  };
-  const cards = editing
-    ? editableDayCards(roster, people, shifts, change)
-    : dayCards(roster, people, shifts, change);
-
-  const actions = [
-    el('button', {
-      className: 'btn btn-primary', textContent: 'Save',
-      onclick: () => {
-        // Building a draft and saving the result retires the draft: the saved
-        // roster takes its place in the list.
-        if (draftId != null) {
-          store.deleteRoster(draftId);
-          draftId = null;
-        }
-        store.saveRoster(roster);
-        toast('Saved — find it under Roster');
-        render(container);
-      },
-    }),
-    el('button', {
-      className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
-      onclick: () => { editing = !editing; rerender(); },
-    }),
-    undoStack.length ? el('button', {
-      className: 'btn', textContent: 'Undo',
-      onclick: () => {
-        roster.assignments = undoStack.pop();
-        roster.notes = auditRoster(roster, store.people(), store.shifts(), store.roles());
-        rerender();
-      },
-    }) : null,
-    // By hand: the scheduler can take over the places still empty. Otherwise:
-    // refill everything except the locked places.
-    built.manual ? el('button', {
-      className: 'btn', textContent: 'Fill the rest for me',
-      onclick: () => fixes.rebuild(),
-    }) : roster.assignments.some((a) => a.locked) ? el('button', {
-      className: 'btn', textContent: 'Rebuild around locked',
-      onclick: () => fixes.rebuild(),
-    }) : null,
-    exportButton(roster, people, shifts, (replies) => { roster.responses = replies; rerender(); }),
-  ];
-
-  // A shortfall must be impossible to miss, so it goes above the schedule.
-  return [
-    built.manual && editing ? el('div', { className: 'notice' }, [
-      el('strong', { textContent: 'Filling in by hand' }),
-      el('div', { textContent: 'Use “+ add” on each shift to put someone on. Everyone free that day is listed. '
-        + 'Stuck? “Fill the rest for me” keeps who you placed and fills the gaps fairly.' }),
-    ]) : null,
-    notesBox(roster),
-    editing ? null : declinedCard(roster, people, shifts, change),
-    editing ? null : gapFixes(roster, people, shifts, fixes),
-    collapsible('roster', 'Roster', cards, { className: '' }),
-    tally(roster, people, shifts),
-    el('div', { className: 'row' }, actions),
-  ];
 }
