@@ -98,6 +98,9 @@ name; tap the name to rename it.
 - **Things to check** (folded until opened) lists what couldn't be done.
   **Fill the gaps** turns "Drums: short on 2 days" into a picker of who else
   could do it: choosing one ticks them for the role and rebuilds.
+- **+ add** sits beside every gap ("Nobody available", "needs 1 more", a role
+  with nobody): tap it to choose from who is free that day and can do it. No
+  need to go into Edit first; the person added is locked.
 - **Tap any name** to replace them with someone free that day who can do the
   role, swap them with someone else on that day, take them off, or lock them in.
   A hand-made change is locked (🔒), and **Rebuild around locked** keeps it while
