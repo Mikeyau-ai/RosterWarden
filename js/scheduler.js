@@ -57,6 +57,53 @@ export function weekdayOf(iso) {
 }
 
 /**
+ * A date in the month an empty calendar should open on: `today`'s month, or
+ * the 1st of next month in a month's last 10 days, when what is left of this
+ * one is too little to roster.
+ */
+export function openingMonthDate(today) {
+  const [y, m, d] = today.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (daysInMonth - d >= 10) return today;
+  return fromDays(toDays(today) + daysInMonth - d + 1);
+}
+
+/** A roster's dates, sorted: its picked days, or for older rosters the days it has places on. */
+export function rosterDates(roster) {
+  return [...(roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))])].sort();
+}
+
+/**
+ * The same days of the week moved on by whole weeks past the last of them, so
+ * a fortnight's roster rolls on to the next fortnight. `days` must be sorted.
+ */
+export function rollOn(days) {
+  const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
+  const step = Math.ceil(span / 7) * 7;
+  return days.map((d) => fromDays(toDays(d) + step));
+}
+
+/**
+ * The dates the next roster most likely needs: the latest saved roster (by its
+ * last date) rolled on until it starts no earlier than `today`, so a roster
+ * from months back still lands on upcoming weeks. Days outside `openDays`
+ * (0-6, Monday=0) are left out, so a one-off special opening isn't carried
+ * on. [] when there is none.
+ */
+export function followOnDates(rosters, today = todayISO(), openDays = [0, 1, 2, 3, 4, 5, 6]) {
+  let latest = [];
+  for (const r of rosters) {
+    if (r.draft) continue;
+    const days = rosterDates(r);
+    if (days.length && (!latest.length || days[days.length - 1] > latest[latest.length - 1])) latest = days;
+  }
+  if (!latest.length) return [];
+  let next = rollOn(latest);
+  while (next[0] < today) next = rollOn(next);
+  return next.filter((d) => openDays.includes(weekdayOf(d)));
+}
+
+/**
  * Month and weekday names, fixed rather than taken from the browser locale.
  *
  * Locale formatting would vary by device (en-GB renders September as "Sept",

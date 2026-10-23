@@ -7,7 +7,7 @@
  * side-by-side layout on a phone.
  */
 import { store } from '../store.js';
-import { formatDate, auditRoster, buildRoster, toDays, fromDays } from '../scheduler.js';
+import { formatDate, auditRoster, buildRoster, rosterDates, rollOn } from '../scheduler.js';
 import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
@@ -148,11 +148,6 @@ function draftRow(r) {
   ]);
 }
 
-/** The dates a roster covers, oldest first. */
-function rosterDates(roster) {
-  return [...(roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))])].sort();
-}
-
 /**
  * Start the next roster from this one: the same days of the week, moved on by
  * whole weeks past its last day, picked on New Roster ready to build.
@@ -160,9 +155,7 @@ function rosterDates(roster) {
 function rollForward(roster) {
   const days = rosterDates(roster);
   if (days.length === 0) return;
-  const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
-  const step = Math.ceil(span / 7) * 7;
-  builderView.startWith(days.map((d) => fromDays(toDays(d) + step)));
+  builderView.startWith(rollOn(days));
   show('new');
 }
 
