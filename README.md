@@ -161,6 +161,12 @@ rosters aren't a clean pattern. The bulk buttons under each month (All open
 days, Saturdays, Weekends...) keep the ordinary case quick; tap a single date to
 switch it off, and tap a bulk button again to clear what it selected.
 
+New Roster starts with the weeks after your latest roster already picked
+(same weekdays, moved on past any weeks already gone, leaving out one-off
+days you aren't normally open), so the usual case is
+just **Build roster**; **Clear** starts from nothing. With nothing picked the
+calendar opens on this month, or next month in a month's last 10 days.
+
 **Repeat weekly** carries the first week's pattern forward, by number of weeks
 or to an end date. It's recalculated each time, so dropping 12 weeks to 4 takes
 the later dates back off.

@@ -10,7 +10,7 @@
  */
 import { store } from '../store.js';
 import {
-  buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO,
+  buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO, followOnDates,
 } from '../scheduler.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
@@ -24,6 +24,11 @@ import * as savedView from './saved.js';
 // until a roster is built from it.
 let picked = new Set();
 let pickedOrgId = null;
+
+// Whether the next render starts afresh and so picks the weeks that follow on
+// from the latest roster. True at first, after each build, and when the
+// organisation changes; a selection the user has made is never replaced.
+let followOn = true;
 
 // A draft saved by an older version, being continued: its name and dates fill
 // the form, and building from it replaces it. `pendingDraftId` is set by
@@ -78,17 +83,29 @@ export function render(container) {
     pendingDates = null;
   }
 
-  // A different organisation starts with nothing picked.
+  // A different organisation starts afresh.
   if (pickedOrgId !== org.id) {
     picked = new Set();
     pickedOrgId = org.id;
+    followOn = true;
+  }
+
+  // Starting afresh: pick the weeks after the latest roster, ready to build.
+  // `carriedOn` labels the selection until the user changes it.
+  let carriedOn = false;
+  if (followOn) {
+    followOn = false;
+    if (picked.size === 0) {
+      picked = new Set(followOnDates(store.rosters(), todayISO(), store.openDays()));
+      carriedOn = picked.size > 0;
+    }
   }
   const draft = draftId != null ? store.roster(draftId) : null;
 
   const summary = el('div', { className: 'faint' });
   const clearBtn = el('button', {
     type: 'button', className: 'btn btn-sm', textContent: 'Clear',
-    onclick: () => { picked.clear(); refreshCalendar(); },
+    onclick: () => { picked.clear(); carriedOn = false; refreshCalendar(); },
   });
 
   // The requests section lists the picked dates, so it has to be rebuilt
@@ -101,19 +118,21 @@ export function render(container) {
     refreshRequests();
     const n = picked.size;
     const sorted = [...picked].sort();
-    summary.textContent = n === 0
+    summary.textContent = (carriedOn ? 'Following on from your last roster. ' : '') + (n === 0
       ? 'Tap the dates you want rostered.'
       : n === 1
         ? `1 date picked — ${formatDate(sorted[0])}`
         : `${n} dates picked — ${formatDate(sorted[0], { withWeekday: false })} to ` +
-          `${formatDate(sorted[n - 1], { withWeekday: false })}`;
+          `${formatDate(sorted[n - 1], { withWeekday: false })}`);
     clearBtn.disabled = n === 0;
   };
 
   const calendarWrap = el('div');
   /** Rebuild the calendar (needed after Clear changes the selection wholesale). */
   const refreshCalendar = () => {
-    fill(calendarWrap, calendarPicker(picked, refreshSummary, { openDays: store.openDays() }));
+    // Any tap on the calendar makes the selection the user's own.
+    const onPick = () => { carriedOn = false; refreshSummary(); };
+    fill(calendarWrap, calendarPicker(picked, onPick, { openDays: store.openDays() }));
     refreshSummary();
   };
   refreshCalendar();
@@ -168,6 +187,7 @@ export function render(container) {
     }
     const saved = store.saveRoster(roster);
     picked = new Set();
+    followOn = true;
     savedView.openRoster(saved.id, { edit });
     show('roster');
     toast(edit ? 'Put people on each shift, or let it fill the rest' : 'Built and saved');

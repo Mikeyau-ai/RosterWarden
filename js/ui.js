@@ -5,7 +5,7 @@
  * a handful of functions over plain DOM beats pulling in a dependency that has
  * to be cached, updated and understood.
  */
-import { weekdayOf, toDays, fromDays, formatDate, todayISO } from './scheduler.js';
+import { weekdayOf, toDays, fromDays, formatDate, todayISO, openingMonthDate } from './scheduler.js';
 
 /** Weekday labels, Monday-first, matching the scheduler's 0-6 indices. */
 export const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -342,8 +342,9 @@ export function calendarPicker(selected, onChange, { openDays = [0, 1, 2, 3, 4, 
   const hasOpeningPattern = openDays.length > 0 && openDays.length < 7;
 
   // The month on show. Starts on whatever the user already picked, so
-  // re-opening a part-built roster lands where they left off.
-  const first = [...selected].sort()[0] || todayISO();
+  // re-opening a part-built roster lands where they left off; with nothing
+  // picked, this month, or next month once this one is nearly over.
+  const first = [...selected].sort()[0] || openingMonthDate(todayISO());
   let [year, month] = first.split('-').map(Number);   // month is 1-12 here
 
   /** Toggle one date and tell the caller. */
