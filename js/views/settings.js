@@ -27,6 +27,14 @@ import * as sync from '../sync.js';
  */
 let section = null;
 
+/** The step-by-step guide and FAQ, on the Sixth Day Studios website. */
+const HELP_URL = 'https://sixthdaystudios.com/rosterwarden/help';
+
+/** Open the help guide in a new tab, leaving the app where it was. */
+function openHelp() {
+  window.open(HELP_URL, '_blank', 'noopener');
+}
+
 /** The menu, grouped so setting the place up is separated from app settings. */
 const MENU = [
   {
@@ -49,6 +57,8 @@ const MENU = [
     items: [
       { id: 'data', label: 'Sync and backup', hint: 'Keep your rosters safe and on every device' },
       { id: 'install', label: 'Add to Home Screen', hint: 'One tap away, and working offline' },
+      // Not a section: opens the website's guide in a new tab.
+      { id: 'help', label: 'Help and FAQ', hint: 'Step-by-step guide and common questions', run: openHelp, external: true },
       { id: 'about', label: 'About', hint: 'How it works, and erasing everything' },
     ],
   },
@@ -122,7 +132,7 @@ function renderMenu(container) {
         el('div', { className: 'item-title', textContent: item.label }),
         el('div', { className: 'item-sub', textContent: item.hint }),
       ]),
-      el('span', { className: 'item-chevron', textContent: '›', 'aria-hidden': 'true' }),
+      el('span', { className: 'item-chevron', textContent: item.external ? '↗' : '›', 'aria-hidden': 'true' }),
     ]))),
   ]));
 }
@@ -643,6 +653,10 @@ function renderAboutCard() {
     el('div', { className: 'muted', textContent: 'Everything stays on this device.' }),
     el('h4', { textContent: 'How it works' }),
     el('ol', { className: 'install-steps' }, howSteps.map((s) => el('li', { textContent: s }))),
+    el('a', {
+      className: 'btn btn-block', href: HELP_URL, target: '_blank', rel: 'noopener',
+      textContent: 'Help and FAQ ↗',
+    }),
     deleteAllBtn,
   ]);
 }

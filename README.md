@@ -31,7 +31,8 @@ Four sections:
 - **Settings**, in three groups:
   - *Your workplace*: Name and opening hours
   - *Connections*: Planning Center, AI assist
-  - *App*: Sync and backup, Add to Home Screen, About
+  - *App*: Sync and backup, Add to Home Screen, Help and FAQ (opens the guide
+    at <https://sixthdaystudios.com/rosterwarden/help>), About
 
 1. **Name your workplace** on the welcome screen and pick a starting point: a
    cafe (one shift of two people), a worship team (a service with lead singer,
