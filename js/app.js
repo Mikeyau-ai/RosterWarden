@@ -330,8 +330,9 @@ let staffPublishTimer = null;
 let staffCheckedAt = 0;
 
 /**
- * Pick up dates staff have sent through their links, apply them, and say so -
- * loudly if a new date clashes with a saved roster. Quiet when offline.
+ * Pick up dates and shift swaps staff have sent through their links, apply
+ * them, and say so - loudly if a new date clashes with a saved roster. Quiet
+ * when offline.
  */
 async function collectStaff() {
   if (Date.now() - staffCheckedAt < 60 * 1000) return;
@@ -341,7 +342,9 @@ async function collectStaff() {
     if (changed.length === 0) return;
     const names = changed.length > 2 ? `${changed.length} people` : changed.map((p) => p.name.split(' ')[0]).join(' and ');
     const clashes = staff.clashes(changed);
-    toast(clashes.length
+    // What they sent may have been a shift swap rather than dates.
+    const swapNews = staff.takeSwapNews();
+    toast(swapNews.length ? swapNews.join('. ') : clashes.length
       ? `New dates from ${names}: ${clashes.length} clash with a saved roster`
       : `New dates from ${names}`);
     render();
