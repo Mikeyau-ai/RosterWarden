@@ -86,6 +86,8 @@ function emptyData() {
     people: [],
     clashes: [],
     rosters: [],
+    // Shift swaps staff asked for through their links (see js/staff.js).
+    swaps: [],
     settings: { aiProvider: 'gemini', aiModel: '', aiKey: '' },
   };
 }
@@ -258,6 +260,7 @@ export const store = {
     this.data.roles = this.data.roles.filter((r) => r.orgId !== id);
     this.data.clashes = this.data.clashes.filter((c) => c.orgId !== id);
     this.data.rosters = this.data.rosters.filter((r) => r.orgId !== id);
+    this.data.swaps = this.data.swaps.filter((w) => w.orgId !== id);
     if (this.data.currentOrgId === id) {
       this.data.currentOrgId = this.data.orgs[0]?.id ?? null;
     }
@@ -469,10 +472,11 @@ export const store = {
     this.save();
   },
 
-  /** Remove a person and any clash rules that referenced them. */
+  /** Remove a person and any clash rules or swaps that referenced them. */
   deletePerson(id) {
     this.data.people = this.data.people.filter((p) => p.id !== id);
     this.data.clashes = this.data.clashes.filter((c) => c.a !== id && c.b !== id);
+    this.data.swaps = this.data.swaps.filter((w) => w.fromId !== id && w.toId !== id);
     for (const p of this.data.people) {
       if (p.withIds?.includes(id)) p.withIds = p.withIds.filter((x) => x !== id);
     }

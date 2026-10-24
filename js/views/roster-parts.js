@@ -165,26 +165,36 @@ export function editableDayCards(roster, people, shifts, apply) {
 }
 
 /**
- * Offer a replacement for one person on a built roster: anyone free that day
- * who can do the role, or a swap with someone on another place the same day.
- * Choosing one applies the change through `apply`; "Take off" just removes them.
+ * Offer a replacement for one person on a built roster: anyone not already on
+ * that day who can do the role (even someone away, marked, since they may want
+ * the extra shift), or a swap with someone on another place, that day or any
+ * other day of the roster. Choosing one applies the change through `apply`;
+ * "Take off" just removes them.
  */
 async function pickReplacement(roster, people, shifts, assignment, roleById, apply) {
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
   const shiftOf = (id) => shifts.find((s) => s.id === id)?.name || '(removed)';
   const roleLabel = (a) => (a.roleId != null ? `, ${roleById.get(a.roleId)?.name || 'removed role'}` : '');
   const day = assignment.date;
+  const onDay = (personId, date) => roster.assignments.some((a) => a.date === date && a.personId === personId);
 
-  // Free people who can do this place.
-  const free = candidatesFor(roster, people, day)
-    .filter((p) => canDoRole(p, assignment.roleId ?? null, roleById));
-  // Others on the same day, if each can do the other's place.
+  // Free people who can do this place first, then those away that day.
+  const free = candidatesFor(roster, people, day);
+  const away = people
+    .filter((p) => p.active && !onDay(p.id, day) && !free.includes(p))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const givable = [...free, ...away].filter((p) => canDoRole(p, assignment.roleId ?? null, roleById));
+  // Others on the roster, if each can do the other's place and neither would
+  // end up on the same day twice.
   const swaps = roster.assignments.filter((b) => {
-    if (b === assignment || b.date !== day || b.personId === assignment.personId) return false;
+    if (b === assignment || b.personId === assignment.personId) return false;
     const pa = people.find((p) => p.id === assignment.personId);
     const pb = people.find((p) => p.id === b.personId);
-    return pa && pb && canDoRole(pb, assignment.roleId ?? null, roleById) && canDoRole(pa, b.roleId ?? null, roleById);
-  });
+    if (!pa || !pb || !canDoRole(pb, assignment.roleId ?? null, roleById) || !canDoRole(pa, b.roleId ?? null, roleById)) return false;
+    return b.date === day || (!onDay(pa.id, b.date) && !onDay(pb.id, day));
+  }).sort((x, y) => x.date.localeCompare(y.date));
+  const sameDay = swaps.filter((b) => b.date === day);
+  const otherDays = swaps.filter((b) => b.date !== day);
 
   const choice = await dialog((close) => {
     const option = (label, sub, next) => el('button', {
@@ -196,23 +206,28 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
     return [
       el('h2', { textContent: nameOf(assignment.personId) }),
       el('div', { className: 'faint', textContent: `${formatDate(day)} · ${shiftOf(assignment.shiftId)}${roleLabel(assignment)}` }),
-      free.length ? el('label', { className: 'label', textContent: 'Replace with' }) : null,
-      el('div', { className: 'list' }, free.map((p) => option(
+      givable.length ? el('label', { className: 'label', textContent: 'Replace with' }) : null,
+      el('div', { className: 'list' }, givable.map((p) => option(
         p.name,
-        p.availableWeekdays.includes(weekdayOf(day)) ? null : 'usually off this day',
+        !free.includes(p) ? 'away that day'
+          : p.availableWeekdays.includes(weekdayOf(day)) ? null : 'usually off this day',
         // A hand-made change is pinned, so a rebuild keeps it.
         roster.assignments.map((a) => (a === assignment ? { ...a, personId: p.id, locked: true } : a)),
       ))),
-      swaps.length ? el('label', { className: 'label', textContent: 'Swap with' }) : null,
-      el('div', { className: 'list' }, swaps.map((b) => option(
-        nameOf(b.personId), `${shiftOf(b.shiftId)}${roleLabel(b)}`,
-        roster.assignments.map((a) => {
-          if (a === assignment) return { ...a, personId: b.personId, locked: true };
-          if (a === b) return { ...a, personId: assignment.personId, locked: true };
-          return a;
-        }),
-      ))),
-      !free.length && !swaps.length ? el('div', { className: 'muted', textContent: 'Nobody else is free that day.' }) : null,
+      ...[['Swap with', sameDay], ['Swap with someone on another day', otherDays]].flatMap(([title, list]) => [
+        list.length ? el('label', { className: 'label', textContent: title }) : null,
+        el('div', { className: 'list' }, list.map((b) => option(
+          nameOf(b.personId),
+          `${b.date === day ? '' : `${formatDate(b.date)} · `}${shiftOf(b.shiftId)}${roleLabel(b)}`,
+          // Each takes the other's place, both pinned.
+          roster.assignments.map((a) => {
+            if (a === assignment) return { ...a, personId: b.personId, locked: true };
+            if (a === b) return { ...a, personId: assignment.personId, locked: true };
+            return a;
+          }),
+        ))),
+      ]),
+      !givable.length && !swaps.length ? el('div', { className: 'muted', textContent: 'Nobody else can take this place.' }) : null,
       el('div', { className: 'modal-actions' }, [
         el('button', {
           className: 'btn', textContent: assignment.locked ? 'Unlock' : 'Lock here',

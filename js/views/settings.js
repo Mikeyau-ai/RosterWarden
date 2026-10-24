@@ -18,6 +18,7 @@ import * as planningCenter from './planning-center.js';
 import { openWizard } from './wizard.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
 import * as sync from '../sync.js';
+import * as staff from '../staff.js';
 
 /**
  * Which sub-screen is open, or null for the menu.
@@ -41,6 +42,7 @@ const MENU = [
     group: 'Your workplace',   // people and shifts have their own Team tab
     items: [
       { id: 'workplace', label: 'Name and opening hours', hint: 'The days you trade, rename or delete' },
+      { id: 'swaps', label: 'Shift swaps', hint: 'Let staff hand their shifts to each other' },
       // Not a section: opens the setup wizard over Settings.
       { id: 'wizard', label: 'Set up a new workplace', hint: 'Step by step: hours, shifts, team and skills', run: () => openWizard() },
     ],
@@ -76,7 +78,7 @@ const LEGACY_SECTIONS = {
 };
 
 /** Sections that describe an organisation, so need one to exist first. */
-const NEEDS_ORG = ['workplace'];
+const NEEDS_ORG = ['workplace', 'swaps'];
 
 /** Open Settings at a particular sub-screen, or at the menu when given null. */
 export function openSection(name) {
@@ -142,6 +144,7 @@ function renderSectionBody(name, container) {
   const redraw = () => render(container);
   switch (name) {
     case 'workplace': return [renderWorkplaceCard()];
+    case 'swaps': return [renderSwapsCard(redraw)];
     case 'planning-center': return [planningCenter.renderCard(redraw)];
     case 'ai': return [renderAICard()];
     case 'data': return [renderSyncCard(container), renderBackupCard(container)];
@@ -186,6 +189,42 @@ function renderWorkplaceCard() {
     el('div', {}, [el('label', { className: 'label', textContent: 'Name' }), nameInput]),
     renderOpeningHours(org),
     deleteBtn,
+  ]);
+}
+
+/**
+ * Section: whether staff can hand their shifts to each other from their
+ * availability links. Two levels, at most one on: a colleague's yes is
+ * enough (self swap), or a colleague's yes and then the owner's approval.
+ */
+function renderSwapsCard(redraw) {
+  const org = store.currentOrg();
+  const mode = staff.swapMode(org);
+  /** One level's switch; turning it on turns the other off. */
+  const level = (value, title, detail) => {
+    const box = el('input', {
+      type: 'checkbox', checked: mode === value,
+      onchange: () => { staff.setSwapMode(org.id, box.checked ? value : 'off'); redraw(); },
+    });
+    return el('div', {}, [
+      el('label', { className: 'row-tight' }, [box, el('strong', { textContent: title })]),
+      el('div', { className: 'faint', textContent: detail }),
+    ]);
+  };
+  return el('div', { className: 'card' }, [
+    el('h3', { textContent: 'Shift swaps' }),
+    el('div', {
+      className: 'muted',
+      textContent: 'Let staff ask anyone on the team to take one of their shifts, from their availability link, '
+        + 'whether or not that person is free that day: they may want the extra shift.',
+    }),
+    level('self', 'Self swap', 'The colleague says yes and the shift is theirs. Nothing for you to do.'),
+    level('approval', 'Swap with approval', 'The colleague says yes, then you approve or decline it on the Roster screen.'),
+    el('div', {
+      className: 'faint',
+      textContent: 'Only one can be on at a time. Staff need their own link to ask or be asked, and while swaps are on, '
+        + 'everyone with a link can see the names of the others. Swaps reach the roster when this app next checks links.',
+    }),
   ]);
 }
 

@@ -482,6 +482,9 @@ pre.roster-text {
 }
 .declined { color: var(--bad); text-decoration: line-through; }
 .staff-mode .tabbar, .staff-mode .org-switch { display: none; }
+/* a shift on a staff page with its swap line under it */
+.swap-row { padding: .45rem 0; border-top: 1px solid var(--line); }
+.swap-row:first-of-type { border-top: none; }
 .setup-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 
 /* ── setup wizard ────────────────────────────────────────────────────── */

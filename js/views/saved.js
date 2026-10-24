@@ -16,6 +16,7 @@ import { show } from '../app.js';
 import * as builderView from './roster.js';
 import * as teamView from './team.js';
 import * as sync from '../sync.js';
+import * as staff from '../staff.js';
 
 // Id of the saved roster currently open, or null when showing the list.
 let openId = null;
@@ -56,7 +57,7 @@ export function render(container) {
   } else {
     openId = null;
     editing = false;
-    fill(container, [...backupNudge(), ...renderList(rosters, container)]);
+    fill(container, [...backupNudge(), swapsCard(null, () => render(container)), ...renderList(rosters, container)]);
   }
 }
 
@@ -106,6 +107,35 @@ function backupNudge() {
       onclick: () => show('settings', { section: 'backup' }),
     }),
   ])];
+}
+
+/**
+ * Shift swaps staff asked for through their links that are still going, on
+ * one roster or (with null) all of them: ones both agreed, waiting for the
+ * owner's Approve or Decline, and ones still waiting for the colleague's
+ * answer. Null when there are none.
+ */
+function swapsCard(rosterId, redraw) {
+  const open = staff.openSwaps(rosterId);
+  if (open.length === 0) return null;
+  /** Approve or decline, and say what happened. */
+  const answer = (swap, approve) => {
+    const ok = staff.decideSwap(swap.id, approve);
+    toast(!approve ? 'Swap declined' : ok ? 'Swapped' : 'Their shift has changed since, so the swap was cancelled');
+    redraw();
+  };
+  return el('div', { className: 'notice' }, [
+    el('strong', { textContent: 'Shift swaps' }),
+    ...open.map(({ swap, label }) => (swap.status === 'accepted'
+      ? el('div', { className: 'spread' }, [
+        el('span', { textContent: label }),
+        el('span', { className: 'row-tight' }, [
+          el('button', { className: 'btn btn-sm btn-primary', textContent: 'Approve', onclick: () => answer(swap, true) }),
+          el('button', { className: 'btn btn-sm', textContent: 'Decline', onclick: () => answer(swap, false) }),
+        ]),
+      ])
+      : el('div', { className: 'faint', textContent: `${label} · waiting for their answer` }))),
+  ]);
 }
 
 /** Build the list of saved rosters and drafts, most recent first. */
@@ -293,6 +323,7 @@ function renderOpen(roster, container) {
       type: 'button', className: 'title-btn', onclick: rename, 'aria-label': `Rename ${roster.name}`,
     }, [el('h2', { textContent: roster.name }), el('span', { className: 'faint', textContent: '✎', 'aria-hidden': 'true' })]),
     el('div', { className: 'row' }, actions),
+    editing ? null : swapsCard(roster.id, redraw),
     roster.byHand && editing ? el('div', { className: 'notice' }, [
       el('strong', { textContent: 'Filling in by hand' }),
       el('div', {

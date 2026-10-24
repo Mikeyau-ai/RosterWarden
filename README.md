@@ -29,7 +29,7 @@ Four sections:
 - **Team**: People, Shifts (with their roles), and Skills, a grid of who can do
   which role.
 - **Settings**, in three groups:
-  - *Your workplace*: Name and opening hours
+  - *Your workplace*: Name and opening hours, Shift swaps
   - *Connections*: Planning Center, AI assist
   - *App*: Sync and backup, Add to Home Screen, Help and FAQ (opens the guide
     at <https://sixthdaystudios.com/rosterwarden/help>), About
@@ -102,8 +102,9 @@ name; tap the name to rename it.
 - **+ add** sits beside every gap ("Nobody available", "needs 1 more", a role
   with nobody): tap it to choose from who is free that day and can do it. No
   need to go into Edit first; the person added is locked.
-- **Tap any name** to replace them with someone free that day who can do the
-  role, swap them with someone else on that day, take them off, or lock them in.
+- **Tap any name** to replace them with someone who can do the role (free that
+  day first, then anyone away, marked), swap them with someone else on that day
+  or any other day of the roster, take them off, or lock them in.
   A hand-made change is locked (🔒), and **Rebuild around locked** keeps it while
   refilling the rest (a rebuild leaves the roster's own old turns out of the
   fairness count). **Undo** steps back through edits, swaps and rebuilds.
@@ -142,6 +143,25 @@ The key is in the link after the `#`, which browsers never send to a server.
 What they enter, and the name and shifts on their page, are encrypted with it
 and stored in two small mailboxes on the sync worker, which can't read them.
 Your copy of each key lives in your own (encrypted) data.
+
+### Shift swaps
+
+**Settings → Shift swaps** has two levels, at most one on:
+
+- **Self swap**: a staff member asks a colleague to take one of their shifts,
+  and the colleague's yes hands it over.
+- **Swap with approval**: the colleague's yes then waits for you; **Approve** or
+  **Decline** it in the Shift swaps box on the Roster screen.
+
+While either is on, every staff link page says swaps are on, each upcoming shift
+has **Ask someone to take it**, and asks from colleagues show with Yes and No.
+Anyone with a link can be asked, whether or not they're free that day (they may
+want the extra shift), so everyone with a link sees the others' names. Staff
+can't reach each other directly: asks and answers go through their own
+mailboxes and your app passes them on, so a swap moves on each time your app
+checks links. A swapped place is locked. An ask is cancelled if it's withdrawn,
+swaps are turned off before it's answered, or you change that place on the
+roster first. The Shift swaps box also lists asks still waiting for an answer.
 
 ### Opening days and hours
 
