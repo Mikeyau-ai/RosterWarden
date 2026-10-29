@@ -7,7 +7,7 @@
  * Every format lists every rostered day and every shift, so an unfilled shift
  * shows as a gap to chase rather than quietly vanishing.
  */
-import { formatDate, weekdayName, shiftsOn, shiftOn, rosterShiftList } from './scheduler.js';
+import { formatDate, weekdayName, shiftsOn, shiftOn, rosterShiftList, daysDiffer } from './scheduler.js';
 
 /**
  * The dates a roster covers, in order.
@@ -232,11 +232,29 @@ function csvField(value) {
 }
 
 /**
+ * The spreadsheet for a roster whose days run different shifts: one row per
+ * date and shift, with everyone on it in one People cell and the shift's note.
+ */
+function toCSVByShift(roster, people, shifts, roles) {
+  const rows = [['Date', 'Day', 'Shift', 'Start', 'End', 'People', 'Note']];
+  for (const day of rosterLines(roster, people, shifts, roles)) {
+    for (const { shift, groups } of day.shifts) {
+      rows.push([
+        day.date, weekdayName(day.date), shift.name, shift.start || '', shift.end || '',
+        labelled(groups).join(', '), shift.note || '',
+      ]);
+    }
+  }
+  return '\uFEFF' + rows.map((r) => r.map(csvField).join(',')).join('\r\n') + '\r\n';
+}
+
+/**
  * A spreadsheet: one row per person per shift, plus a row for each place
  * still unfilled, so the sheet can be sorted or filtered by person or date.
  * Starts with a byte-order mark so Excel reads names with accents correctly.
  */
 export function toCSV(roster, people, shifts, roles = []) {
+  if (daysDiffer(roster, shifts)) return toCSVByShift(roster, people, shifts, roles);
   // A Role column only when the roster is made of roles, so a plain roster's
   // spreadsheet is exactly what it always was.
   const withRole = usesRoles(roster, shifts);

@@ -22,7 +22,7 @@ import * as staff from './staff.js';
 import { keyFromHash } from './staff-link.js';
 import * as staffPage from './views/staff.js';
 import { openWizard } from './views/wizard.js';
-import { addShifts, templateShifts } from './setup.js';
+import { addShifts, templateShifts, addTemplateRoles } from './setup.js';
 
 // Four sections. "Roster" is the rosters you have saved - the thing you open
 // the app to look at - and "New Roster" is the builder. "Team" is who you
@@ -73,6 +73,7 @@ function welcome() {
   const kindSelect = el('select', { 'aria-label': 'Start from' }, [
     el('option', { value: 'cafe', textContent: 'A cafe or similar (a shift of 2 people)' }),
     el('option', { value: 'band', textContent: 'A worship team (lead singer, guitar, drums…)' }),
+    el('option', { value: 'catering', textContent: 'Catering or events (shifts change each week)' }),
     el('option', { value: 'blank', textContent: 'A blank start' }),
   ]);
   const create = (event) => {
@@ -112,7 +113,8 @@ function welcome() {
 }
 
 /**
- * Create an organisation with a starter shift and take the user to People,
+ * Create an organisation with its starting shifts and roles (catering starts
+ * with roles but no shifts) and take the user to People,
  * the next thing a new roster needs (by hand, or from Planning Center).
  */
 function createOrg(name, kind = 'cafe') {
@@ -129,6 +131,7 @@ function createOrg(name, kind = 'cafe') {
  * go straight to adding people and press Build.
  */
 function seedDefaults(kind = 'cafe') {
+  addTemplateRoles(kind);
   addShifts(templateShifts(kind));
 }
 

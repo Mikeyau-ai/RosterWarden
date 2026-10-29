@@ -11,12 +11,15 @@
 import { store } from '../store.js';
 import {
   buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO, followOnDates, usualDayShifts,
+  latestRoster, carryDayShifts,
 } from '../scheduler.js';
+import { shiftTimes } from '../export.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
   el, fill, toast, confirmDialog, calendarPicker, emptyState, openSheet, collapsible,
 } from '../ui.js';
 import { show } from '../app.js';
+import { openDayShifts } from './day-shifts.js';
 import * as teamView from './team.js';
 import * as savedView from './saved.js';
 
@@ -41,12 +44,30 @@ export function openDraft(id) {
   pendingDraftId = id;
 }
 
-// Dates handed over by another screen ("Next one"), picked on the next render.
+// Dates handed over by another screen ("Next one"), picked on the next render,
+// and the roster they come from (whose per-day shifts carry over), if any.
 let pendingDates = null;
+let pendingSource = null;
 
-/** Open New Roster with these dates already picked. */
-export function startWith(dates) {
+/** Open New Roster with these dates already picked, carrying `source`'s day shifts forward. */
+export function startWith(dates, source = null) {
   pendingDates = [...dates];
+  pendingSource = source;
+}
+
+// The shifts planned for dates that differ from the usual ones: `{ date:
+// entries }`, only for dates changed (or carried forward from the last
+// roster). A picked date not in it runs the usual shifts that weekday.
+let plan = {};
+
+/** The shifts a picked date will run: its planned list, else the usual shifts for that weekday. */
+function dayListFor(date) {
+  return plan[date] ?? usualDayShifts(store.shifts(), [date])[date];
+}
+
+/** The day lists for these dates, as a built roster keeps them. */
+function dayListsFor(dates) {
+  return Object.fromEntries(dates.map((d) => [d, dayListFor(d)]));
 }
 
 // Whether the requests/days-off section is expanded, kept across its rebuilds.
@@ -73,19 +94,24 @@ export function render(container) {
     if (d && d.draft && d.orgId === org.id) {
       draftId = d.id;
       picked = new Set(d.days || []);
+      plan = {};
       pickedOrgId = org.id;
     }
   }
   if (pendingDates) {
     picked = new Set(pendingDates);
+    // The roster these dates roll on from hands its day shifts over too.
+    plan = pendingSource ? carryDayShifts(pendingSource, [...picked].sort(), store.shifts()) : {};
     pickedOrgId = org.id;
     draftId = null;
     pendingDates = null;
+    pendingSource = null;
   }
 
   // A different organisation starts afresh.
   if (pickedOrgId !== org.id) {
     picked = new Set();
+    plan = {};
     pickedOrgId = org.id;
     followOn = true;
   }
@@ -98,6 +124,8 @@ export function render(container) {
     if (picked.size === 0) {
       picked = new Set(followOnDates(store.rosters(), todayISO(), store.openDays()));
       carriedOn = picked.size > 0;
+      // The last roster's shifts for those weekdays come along if they were changed.
+      plan = carryDayShifts(latestRoster(store.rosters()), [...picked].sort(), store.shifts());
     }
   }
   const draft = draftId != null ? store.roster(draftId) : null;
@@ -105,17 +133,30 @@ export function render(container) {
   const summary = el('div', { className: 'faint' });
   const clearBtn = el('button', {
     type: 'button', className: 'btn btn-sm', textContent: 'Clear',
-    onclick: () => { picked.clear(); carriedOn = false; refreshCalendar(); },
+    onclick: () => { picked.clear(); plan = {}; carriedOn = false; refreshCalendar(); },
   });
+
+  // Faint pointer shown above the build buttons while no shift is set up for the picked dates.
+  const noShiftsHint = el('div', { className: 'faint' });
 
   // The requests section lists the picked dates, so it has to be rebuilt
   // whenever the calendar selection changes - not just once on first render.
   const requestsWrap = el('div');
   const refreshRequests = () => { fill(requestsWrap, requestsSection(container)); };
 
-  /** Update the "N dates picked" line and the requests under the calendar. */
+  // The shifts section lists the picked dates too, so it is rebuilt with them.
+  const planWrap = el('div');
+
+  /** Update the "N dates picked" line, and the shifts and requests under the calendar. */
   const refreshSummary = () => {
+    // A date taken off the calendar leaves the plan.
+    for (const date of Object.keys(plan)) if (!picked.has(date)) delete plan[date];
+    fill(planWrap, planSection(container));
     refreshRequests();
+    const hasShift = [...picked].some((d) => dayListFor(d).length > 0);
+    noShiftsHint.textContent = store.shifts().length === 0 && !hasShift
+      ? 'No usual shifts: add this week’s shifts under "Shifts on these days", or set up usual shifts on the Team tab.'
+      : '';
     const n = picked.size;
     const sorted = [...picked].sort();
     summary.textContent = (carriedOn ? 'Following on from your last roster. ' : '') + (n === 0
@@ -173,6 +214,11 @@ export function render(container) {
       errDiv.textContent = 'Pick at least one date on the calendar.';
       return null;
     }
+    // Nothing to fill would only save an empty roster.
+    if (![...picked].some((d) => dayListFor(d).length > 0)) {
+      errDiv.textContent = 'None of these dates has a shift yet: add them under "Shifts on these days".';
+      return null;
+    }
     return [...picked].sort();
   };
 
@@ -187,6 +233,7 @@ export function render(container) {
     }
     const saved = store.saveRoster(roster);
     picked = new Set();
+    plan = {};
     followOn = true;
     savedView.openRoster(saved.id, { edit });
     show('roster');
@@ -204,6 +251,7 @@ export function render(container) {
       shifts: store.shifts(),
       clashes: store.clashes(),
       dates,
+      dayShifts: dayListsFor(dates),
       roles: store.roles(),
       // Turns in saved rosters count towards who is due next.
       history: store.rosters().filter((r) => !r.draft).flatMap((r) => r.assignments || []),
@@ -225,7 +273,7 @@ export function render(container) {
       endDate: dates[dates.length - 1],
       days: dates,
       // Its own copy of each day's shifts, as a built roster keeps.
-      dayShifts: usualDayShifts(store.shifts(), dates),
+      dayShifts: dayListsFor(dates),
       assignments: [],
       notes: [],
       // Marks it as being filled in by hand until the scheduler fills the rest.
@@ -236,18 +284,11 @@ export function render(container) {
   };
 
   // The build controls, pinned to the foot of the screen - or, if the org
-  // has nothing to schedule yet, a pointer to the screen that fixes it, so the
-  // scheduler is never invoked with nothing to work with.
+  // has nobody to schedule yet, a pointer to the screen that fixes it, so the
+  // scheduler is never invoked with nothing to work with. No usual shifts is
+  // fine: they can be planned per day under "Shifts on these days".
   let buildControl;
-  if (shifts.length === 0) {
-    buildControl = emptyState(
-      'No shifts yet',
-      'Add at least one shift before building a roster.',
-      el('button', {
-        className: 'btn btn-primary', textContent: 'Add shifts', onclick: () => openTeam('shifts'),
-      })
-    );
-  } else if (activePeople.length === 0) {
+  if (activePeople.length === 0) {
     buildControl = emptyState(
       'No active people yet',
       'Add people before building a roster.',
@@ -257,6 +298,7 @@ export function render(container) {
     );
   } else {
     buildControl = el('div', { className: 'build-bar' }, [
+      noShiftsHint,
       errDiv,
       el('div', { className: 'build-actions' }, [
         el('button', { type: 'button', className: 'btn', textContent: 'Fill in by hand', onclick: onManual }),
@@ -274,6 +316,7 @@ export function render(container) {
       store.deleteRoster(draftId);
       draftId = null;
       picked.clear();
+      plan = {};
       toast('Draft deleted');
       show('roster');
     },
@@ -286,7 +329,49 @@ export function render(container) {
     readiness,
   ]);
 
-  fill(container, [formCard, requestsWrap, buildControl]);
+  fill(container, [formCard, planWrap, requestsWrap, buildControl]);
+}
+
+/**
+ * "Shifts on these days": each picked date with the shifts it will run, and a
+ * button to change that day's shifts before building. Folded by default, as
+ * most weeks run the usual shifts; its title says how many days differ.
+ */
+function planSection(container) {
+  const dates = [...picked].sort();
+  const changed = dates.filter((d) => plan[d]).length;
+
+  /** Open the day sheet for `date`, reading and writing the plan; closing redraws this screen. */
+  const change = (date) => openDayShifts({
+    dates,
+    getLists: () => dayListsFor(dates),
+    // Keep only the dates that differ from the usual shifts as the plan.
+    setLists: (lists) => {
+      const usual = usualDayShifts(store.shifts(), dates);
+      plan = Object.fromEntries(dates
+        .filter((d) => JSON.stringify(lists[d]) !== JSON.stringify(usual[d]))
+        .map((d) => [d, lists[d]]));
+    },
+  }, date, () => render(container));
+
+  const body = dates.length === 0
+    ? [el('div', { className: 'muted', textContent: 'Pick the dates above first, then set the shifts on each.' })]
+    : dates.map((date) => {
+      const list = dayListFor(date);
+      const text = list.map((s) => `${[s.name, shiftTimes(s)].filter(Boolean).join(' ')} · ${s.headcount}`).join(', ');
+      return el('div', { className: 'spread' }, [
+        el('div', {}, [
+          el('strong', { textContent: formatDate(date) }),
+          el('div', { className: 'faint', textContent: text || 'No shifts' }),
+        ]),
+        el('button', { type: 'button', className: 'btn btn-sm', textContent: 'Change ›', onclick: () => change(date) }),
+      ]);
+    });
+
+  return collapsible(
+    'plan-shifts', `Shifts on these days${changed ? ` (${changed} changed)` : ''}`,
+    el('div', { style: 'display:grid;gap:.6rem' }, body), { open: false },
+  );
 }
 
 /**
