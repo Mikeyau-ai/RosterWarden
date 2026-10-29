@@ -53,12 +53,12 @@ function noShifts() {
 }
 
 /**
- * The "Shifts for this day" button under a date in edit mode, or null when
+ * The "Shifts and events" button under a date in edit mode, or null when
  * there is nothing to call (`onEditDay` not given).
  */
 function editDayButton(day, onEditDay) {
   return onEditDay ? el('button', {
-    type: 'button', className: 'btn btn-sm', textContent: 'Shifts for this day ›',
+    type: 'button', className: 'btn btn-sm', textContent: 'Shifts and events ›',
     onclick: () => onEditDay(day),
   }) : null;
 }

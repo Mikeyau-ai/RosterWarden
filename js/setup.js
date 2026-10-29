@@ -33,7 +33,7 @@ export const TEMPLATES = {
   },
   catering: {
     label: 'Catering or events',
-    hint: 'No usual shifts; plan each week, with roles ready',
+    hint: 'No regular shifts; add each week’s events, with roles ready',
     shifts: [],
     roleNames: ['Chef', 'Waiter', 'Bar', 'Kitchen hand'],
   },

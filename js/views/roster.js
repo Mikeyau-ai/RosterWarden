@@ -155,7 +155,7 @@ export function render(container) {
     refreshRequests();
     const hasShift = [...picked].some((d) => dayListFor(d).length > 0);
     noShiftsHint.textContent = store.shifts().length === 0 && !hasShift
-      ? 'No usual shifts: add this week’s shifts under "Shifts on these days", or set up usual shifts on the Team tab.'
+      ? 'No regular shifts: add this week’s events under "Shifts and events", or set up shifts on the Team tab.'
       : '';
     const n = picked.size;
     const sorted = [...picked].sort();
@@ -216,7 +216,7 @@ export function render(container) {
     }
     // Nothing to fill would only save an empty roster.
     if (![...picked].some((d) => dayListFor(d).length > 0)) {
-      errDiv.textContent = 'None of these dates has a shift yet: add them under "Shifts on these days".';
+      errDiv.textContent = 'None of these dates has a shift or event yet: add them under "Shifts and events".';
       return null;
     }
     return [...picked].sort();
@@ -286,7 +286,7 @@ export function render(container) {
   // The build controls, pinned to the foot of the screen - or, if the org
   // has nobody to schedule yet, a pointer to the screen that fixes it, so the
   // scheduler is never invoked with nothing to work with. No usual shifts is
-  // fine: they can be planned per day under "Shifts on these days".
+  // fine: they can be planned per day under "Shifts and events".
   let buildControl;
   if (activePeople.length === 0) {
     buildControl = emptyState(
@@ -333,7 +333,7 @@ export function render(container) {
 }
 
 /**
- * "Shifts on these days": each picked date with the shifts it will run, and a
+ * "Shifts and events": each picked date with the shifts it will run, and a
  * button to change that day's shifts before building. Folded by default, as
  * most weeks run the usual shifts; its title says how many days differ.
  */
@@ -369,7 +369,7 @@ function planSection(container) {
     });
 
   return collapsible(
-    'plan-shifts', `Shifts on these days${changed ? ` (${changed} changed)` : ''}`,
+    'plan-shifts', `Shifts and events${changed ? ` (${changed} changed)` : ''}`,
     el('div', { style: 'display:grid;gap:.6rem' }, body), { open: false },
   );
 }

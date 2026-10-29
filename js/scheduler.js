@@ -294,7 +294,8 @@ export function copyDayShifts(roster, usual) {
  * number of weeks before it (same weekday) that the source has a list for.
  * Only dates whose carried list differs from the usual shifts of that date
  * (`usual`, the Team tab's shifts) are returned, as `{ date: entries }`; a
- * roster without `dayShifts` carries nothing.
+ * roster without `dayShifts` carries nothing. Events (`event: true`) are
+ * one-offs, so they stay behind.
  */
 export function carryDayShifts(sourceRoster, newDates, usual) {
   const out = {};
@@ -306,7 +307,7 @@ export function carryDayShifts(sourceRoster, newDates, usual) {
     // Nearest earlier source date on the same weekday (a multiple of 7 days back).
     const from = have.filter((d) => d < date && (toDays(date) - toDays(d)) % 7 === 0).pop();
     if (from === undefined) continue;
-    const copy = JSON.parse(JSON.stringify(lists[from]));
+    const copy = JSON.parse(JSON.stringify(lists[from].filter((e) => !e.event)));
     if (JSON.stringify(copy) !== JSON.stringify(usualLists[date])) out[date] = copy;
   }
   return out;

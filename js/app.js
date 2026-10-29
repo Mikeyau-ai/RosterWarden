@@ -73,7 +73,7 @@ function welcome() {
   const kindSelect = el('select', { 'aria-label': 'Start from' }, [
     el('option', { value: 'cafe', textContent: 'A cafe or similar (a shift of 2 people)' }),
     el('option', { value: 'band', textContent: 'A worship team (lead singer, guitar, drums…)' }),
-    el('option', { value: 'catering', textContent: 'Catering or events (shifts change each week)' }),
+    el('option', { value: 'catering', textContent: 'Catering or events (new events each week)' }),
     el('option', { value: 'blank', textContent: 'A blank start' }),
   ]);
   const create = (event) => {
