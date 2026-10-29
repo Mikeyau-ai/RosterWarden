@@ -190,3 +190,14 @@ test('formatTable keeps a column per shift when every day runs the same shifts',
   const text = formatTable(build({ [D1]: [usual[0]], [D2]: [usual[0]] }), people, usual);
   assert.match(text.split('\n')[0], /^Date\s+Day\s+Cafe \(08:00-12:00\)$/);
 });
+
+test('carryDayShifts leaves events behind: they are one-offs', () => {
+  const event = { ...oneOff, event: true };
+  const changedLunch = { ...usual[0], start: '09:00' };
+  const source = { days: [D1], dayShifts: { [D1]: [changedLunch, event] } };
+  const next = '2026-06-08';   // the Monday a week on
+  assert.deepEqual(carryDayShifts(source, [next], usual), { [next]: [changedLunch] });
+  // Only an event that day: nothing differs from the usual shifts once it is left behind.
+  const onlyEvent = { days: [D1], dayShifts: { [D1]: [{ ...usual[0], roles: [] }, event] } };
+  assert.deepEqual(carryDayShifts(onlyEvent, [next], usual), {});
+});

@@ -364,7 +364,7 @@ function doneStep(draft) {
       el('li', { textContent: `Open: ${daysText(draft.openDays)}${hours}` }),
       el('li', { textContent: shifts.length
         ? `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'}: ${shifts.map((s) => `${s.name.trim()} (${shiftSize(s)})`).join(', ')}`
-        : 'No usual shifts — plan each week’s shifts when you build' }),
+        : 'No regular shifts — add each week’s events when you build' }),
       el('li', { textContent: people ? `${people} ${people === 1 ? 'person' : 'people'} on the team` : 'No people yet — add them on the Team tab' }),
     ]),
   ];

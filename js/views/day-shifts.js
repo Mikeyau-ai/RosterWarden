@@ -1,7 +1,8 @@
 /**
- * The "Shifts for this day" sheet: change one day's shifts - name, times,
- * people needed, roles, a note - take a shift off that day, or add one (a usual
- * shift or a one-off). It works on a saved roster, or on the plan for a roster
+ * The "Shifts and events" sheet: change one day's shifts and events - name,
+ * times, people needed, roles, a note - take one off that day, or add one (a
+ * shift, which recurs, or an event: a one-off marked `event: true`). It
+ * works on a saved roster, or on the plan for a roster
  * not built yet (see `rosterDaySource` and New Roster). Like the Team tab it
  * saves as you go. Only that day's list changes unless "Same on every day" is
  * tapped.
@@ -201,6 +202,7 @@ export function openDayShifts(source, day, onClose) {
     });
 
     return el('div', { className: 'card' }, [
+      el('div', { className: 'faint', textContent: entry.event ? 'Event (just this day)' : 'Shift' }),
       el('div', {}, [el('label', { className: 'label', textContent: 'Name' }), nameInput]),
       el('div', { className: 'grid-2' }, [
         el('div', {}, [el('label', { className: 'label', textContent: 'Start' }), startInput]),
@@ -210,30 +212,31 @@ export function openDayShifts(source, day, onClose) {
       el('div', {}, [el('label', { className: 'label', textContent: 'Staff needed' }), headcountInput]),
       el('div', {}, [el('label', { className: 'label', textContent: 'Roles' }), ...roleRows, addRole]),
       err,
-      el('div', { className: 'row' }, [sameBtn, removeBtn]),
+      // An event is a one-off, so it has no other days to copy to.
+      el('div', { className: 'row' }, [entry.event ? null : sameBtn, removeBtn]),
     ]);
   }
 
   /**
-   * The "+ Add shift" picker: the usual shifts not already on this day, or a
-   * one-off. A usual shift is copied in with its own id; a one-off gets a new
-   * one. Either goes at the end of the day's list.
+   * The "+ Add shift or event" picker: the usual shifts not already on this
+   * day, or a new event. A shift is copied in with its own id; an event gets a
+   * new one and is marked as a one-off. Either goes at the end of the day's list.
    */
   function addPicker(entries, body) {
     const onDay = new Set(entries.map((e) => e.id));
     const select = el('select', {}, [
-      el('option', { value: '', textContent: '+ Add shift' }),
+      el('option', { value: '', textContent: '+ Add shift or event' }),
       ...store.shifts().filter((s) => !onDay.has(s.id))
         .map((s) => el('option', { value: String(s.id), textContent: s.name })),
-      el('option', { value: 'one-off', textContent: 'One-off shift…' }),
+      el('option', { value: 'event', textContent: 'New event (just this day)…' }),
     ]);
     select.addEventListener('change', () => {
       let entry;
-      if (select.value === 'one-off') {
+      if (select.value === 'event') {
         const org = store.currentOrg();
         entry = {
-          id: store.newShiftId(), name: 'Shift', start: org?.openTime || '', end: org?.closeTime || '',
-          headcount: 1, roles: [],
+          id: store.newShiftId(), name: 'Event', start: org?.openTime || '', end: org?.closeTime || '',
+          headcount: 1, roles: [], event: true,
         };
       } else {
         const usual = store.shifts().find((s) => s.id === Number(select.value));
