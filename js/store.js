@@ -300,6 +300,7 @@ export const store = {
       name: `${from.name} (copy)`, start: from.start, end: from.end, headcount: from.headcount,
     });
     copy.roles = (from.roles || []).map((r) => ({ ...r }));
+    if (Array.isArray(from.days)) copy.days = [...from.days];
     copy.pcoPosition = from.pcoPosition ?? null;
     // Slot it in right after the original, keeping the order numbers whole.
     const ordered = this.shifts().filter((s) => s.id !== copy.id);

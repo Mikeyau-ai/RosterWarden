@@ -204,7 +204,7 @@ function refill(roster) {
     // Other saved rosters count towards who is due next. This one's own
     // current turns must not, or everyone on it would look over-used.
     history: store.rosters().filter((r) => !r.draft && r.id !== roster.id).flatMap((r) => r.assignments || []),
-    locked: kept,
+    locked: kept, dayShifts: roster.dayShifts,
   });
   return { assignments: fresh.assignments, notes: fresh.notes };
 }

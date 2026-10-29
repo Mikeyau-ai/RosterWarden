@@ -12,7 +12,7 @@
  */
 import { store } from './store.js';
 import * as link from './staff-link.js';
-import { todayISO, toDays, fromDays, formatDate, auditRoster } from './scheduler.js';
+import { todayISO, toDays, fromDays, formatDate, auditRoster, shiftOn } from './scheduler.js';
 import { shiftTimes } from './export.js';
 
 /** Tag on away dates that came from a person's own link. */
@@ -132,9 +132,13 @@ function shortHash(text) {
   return h.toString(16);
 }
 
-/** The date, shift name, times and role of a place, as a link page shows it. */
-function describePlace(place) {
-  const shift = store.data.shifts.find((s) => s.id === place.shiftId);
+/**
+ * The date, shift name, times and role of a place, as a link page shows it.
+ * `roster` is the roster the place belongs to, so a shift that runs differently
+ * on that day is described as it runs then.
+ */
+function describePlace(place, roster) {
+  const shift = shiftOn(roster, place.date, place.shiftId, store.data.shifts);
   const role = place.roleId != null ? store.data.roles.find((r) => r.id === place.roleId) : null;
   return {
     date: place.date,
@@ -151,7 +155,7 @@ function upcomingShifts(person) {
     .filter((r) => r.orgId === person.orgId && !r.draft)
     .flatMap((r) => r.assignments
       .filter((a) => a.personId === person.id && a.date >= today)
-      .map((a) => ({ ...describePlace(a), ref: placeRef(r.id, a) })))
+      .map((a) => ({ ...describePlace(a, r), ref: placeRef(r.id, a) })))
     .sort((x, y) => x.date.localeCompare(y.date))
     .slice(0, 60);
 }
@@ -399,11 +403,11 @@ function swapPage(person) {
       .map((p) => ({ id: p.id, name: p.name })),
     // Their own asks, so the page can say how each is going.
     out: upcoming.filter((w) => w.fromId === person.id).map((w) => ({
-      id: w.id, ref: placeRef(w.rosterId, w), toId: w.toId, toName: nameOf(w.toId), status: w.status, ...describePlace(w),
+      id: w.id, ref: placeRef(w.rosterId, w), toId: w.toId, toName: nameOf(w.toId), status: w.status, ...describePlace(w, store.roster(w.rosterId)),
     })),
     // Asks waiting for their answer.
     in: upcoming.filter((w) => w.toId === person.id && w.status === 'asked').map((w) => ({
-      id: w.id, fromName: nameOf(w.fromId), ...describePlace(w),
+      id: w.id, fromName: nameOf(w.fromId), ...describePlace(w, store.roster(w.rosterId)),
     })),
   };
 }
@@ -417,7 +421,7 @@ export function openSwaps(rosterId = null) {
     .filter((w) => rosterId == null || w.rosterId === rosterId)
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((swap) => {
-      const place = describePlace(swap);
+      const place = describePlace(swap, store.roster(swap.rosterId));
       return {
         swap,
         label: `${nameOf(swap.fromId)} → ${nameOf(swap.toId)} · ${formatDate(swap.date, { withWeekday: false })} · ${place.shift}${place.role ? `, ${place.role}` : ''}`,
