@@ -145,6 +145,7 @@ function describePlace(place, roster) {
     shift: shift?.name || 'Shift',
     times: shift ? shiftTimes(shift) : '',
     role: role ? role.name : null,
+    note: shift?.note || '',
   };
 }
 

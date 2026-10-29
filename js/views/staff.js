@@ -52,7 +52,10 @@ function shiftList(info, swaps, sent, change) {
   const org = info.org || 'whoever does the roster';
 
   const rows = shifts.map((s) => {
-    const line = el('div', { textContent: placeText(s) });
+    const line = el('div', {}, [
+      placeText(s),
+      s.note ? el('span', { className: 'faint', textContent: ` · ${s.note}` }) : null,
+    ]);
     if (!swaps || !s.ref) return line;
 
     // An ask still going: say where it is, and let them take it back.

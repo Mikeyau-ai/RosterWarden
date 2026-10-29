@@ -176,7 +176,8 @@ export function formatMessage(roster, people, shifts, roles = []) {
     for (const { shift, names, short, groups } of day.shifts) {
       if (names.length === 0 && shift.headcount === 0) continue;   // a shift nobody is needed on
       const times = shiftTimes(shift);
-      const label = times ? `${shift.name} ${times}` : shift.name;
+      const base = times ? `${shift.name} ${times}` : shift.name;
+      const label = shift.note ? `${base} (${shift.note})` : base;
       if (groups.length === 1 && groups[0].role === null) {
         const who = names.length ? names.join(', ') : 'nobody yet';
         lines.push(`• ${label}: ${who}${names.length && short ? ` (needs ${short} more)` : ''}`);
