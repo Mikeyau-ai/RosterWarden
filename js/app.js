@@ -352,7 +352,7 @@ async function collectStaff() {
     if (changed.length === 0) return;
     const names = changed.length > 2 ? `${changed.length} people` : changed.map((p) => p.name.split(' ')[0]).join(' and ');
     const clashes = staff.clashes(changed);
-    // What they sent may have been a shift swap rather than dates.
+    // What they sent may have been a shift swap, or a yes or no to a shift, rather than dates.
     const swapNews = staff.takeSwapNews();
     toast(swapNews.length ? swapNews.join('. ') : clashes.length
       ? `New dates from ${names}: ${clashes.length} clash with a saved roster`

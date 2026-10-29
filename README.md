@@ -142,6 +142,12 @@ no login. On their page: **Create link**, then **Email**, **Text**, **Share** or
 sent. The link opens a page with just their name, their upcoming shifts, a
 calendar to tap the dates they can't work, and a note.
 
+Beside each upcoming shift they tap **I can do it** or **Can't do it**, sent
+straight away and changeable. Answers land in the roster's `responses` with the
+same codes as Planning Center replies, so the roster shows ✓ or ✕ by their
+name and a "can't" appears under **declined** with **Replace**. An answer is
+for that person on that place, so it drops if the place goes to someone else.
+
 Your app picks up what they sent when it opens and whenever you come back to it
 (or straight away with **Check now**). Their dates become away dates marked
 "from their link", replacing what they sent before; away dates you entered are

@@ -307,8 +307,8 @@ async function pickToAdd(roster, people, shift, day, roleId, roleById, apply) {
 }
 
 /**
- * A card listing everyone who declined on Planning Center, each with a button
- * to replace them. Null when nobody has.
+ * A card listing everyone who declined, on Planning Center or on their own
+ * link, each with a button to replace them. Null when nobody has.
  */
 export function declinedCard(roster, people, shifts, apply) {
   const roleById = new Map(store.roles().map((r) => [r.id, r]));
