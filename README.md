@@ -36,7 +36,8 @@ Four sections:
 
 1. **Name your workplace** on the welcome screen and pick a starting point: a
    cafe (one shift of two people), a worship team (a service with lead singer,
-   backup singers, guitars, bass, drums and keys) or blank. You can have more
+   backup singers, guitars, bass, drums and keys), catering or events (roles
+   such as Chef and Waiter but no regular shifts) or blank. You can have more
    than one workplace; the dropdown at the top switches between them.
 
    Or tap **Walk me through it step by step** for the setup wizard: name and
@@ -106,6 +107,11 @@ name; tap the name to rename it.
 - **+ add** sits beside every gap ("Nobody available", "needs 1 more", a role
   with nobody): tap it to choose from who is free that day and can do it. No
   need to go into Edit first; the person added is locked.
+- In **Edit**, **Shifts and events** under each date changes that day's
+  shifts and events: name, times, people, roles, a note (shown on the roster,
+  in the group message and on staff pages), take one off (asking first if
+  people are on it), or add a shift or a one-off **event**. **Same on every
+  day** copies a shift's change to the roster's other days. Undo covers these.
 - **Tap any name** to replace them with someone who can do the role (free that
   day first, then anyone away, marked), swap them with someone else on that day
   or any other day of the roster, take them off, or lock them in.
@@ -194,6 +200,16 @@ calendar opens on this month, or next month in a month's last 10 days.
 **Repeat weekly** carries the first week's pattern forward, by number of weeks
 or to an end date. It's recalculated each time, so dropping 12 weeks to 4 takes
 the later dates back off.
+
+### Shifts and events
+
+**Shifts** recur (Team tab); **events** are one-offs on a single day, such as a
+wedding. Under the calendar, **Shifts and events** lists what each picked date
+runs; **Change** opens the same day sheet as Edit on a built roster. Changed
+shifts carry forward to the next weeks (following on, or **Next one**);
+events stay behind. With no regular shifts, Build needs at least one shift or
+event on a picked date. When the days' shifts differ, the spreadsheet and text
+table list one row per date and shift instead of a column per shift.
 
 ### Requests and days off
 
