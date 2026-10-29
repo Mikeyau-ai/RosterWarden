@@ -81,6 +81,7 @@ function welcome() {
     if (!name) { nameInput.focus(); return; }
     createOrg(name, kindSelect.value);
   };
+  const joinErr = el('div', { className: 'err' });
 
   return el('form', { className: 'card', onsubmit: create }, [
     el('h2', { textContent: 'Welcome to RosterWarden' }),
@@ -101,6 +102,12 @@ function welcome() {
       type: 'button', className: 'btn btn-lg btn-block', textContent: 'Walk me through it step by step',
       onclick: () => openWizard({ name: nameInput.value.trim(), kind: kindSelect.value }),
     }),
+    // A replacement phone lands here first: offer the way back to its rosters.
+    ...(sync.isConfigured() ? [
+      el('div', { className: 'or-line', textContent: 'or' }),
+      settingsView.joinButton(joinErr, 'I already use RosterWarden: enter my sync code'),
+      joinErr,
+    ] : []),
   ]);
 }
 

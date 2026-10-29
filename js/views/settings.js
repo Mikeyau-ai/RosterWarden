@@ -421,6 +421,53 @@ function renderAICard() {
 }
 
 /**
+ * A button that brings this device's data in from a sync code entered by
+ * hand. Shown whether or not sync is already on here, and on the welcome
+ * screen, because a new phone switches sync on by itself at first launch.
+ * Problems are written into `err`.
+ */
+export function joinButton(err, label = 'Use a code from another device') {
+  return el('button', {
+    type: 'button', className: 'btn btn-block', textContent: label,
+    onclick: async () => {
+      err.textContent = '';
+      const entered = await promptText('Enter sync code', 'Code from your other device');
+      if (!entered) return;
+      if (sync.normaliseCode(entered) === sync.currentCode()) {
+        err.textContent = 'This device is already using that code.';
+        return;
+      }
+      try {
+        const result = await sync.pull(entered);
+        if (!result) {
+          err.textContent = 'No data found for that code — check it and try again.';
+          return;
+        }
+        // A fresh install has already switched sync on with a code of its own,
+        // so this replaces that code too. Say so when there is one to lose.
+        const ok = await confirmDialog(
+          'Replace what is on this device?',
+          'The data from that code will replace everything currently on this device'
+          + (sync.currentCode() ? ', and this device will use that code from now on' : '')
+          + '. Export a backup first if you are not sure.',
+          'Replace'
+        );
+        if (!ok) return;
+        store.importJSON(JSON.stringify(result.data));
+        sync.setDisabled(false);
+        sync.setCode(entered);
+        sync.acknowledgeCode();      // they just typed it in, so they have a copy
+        refreshOrgs();
+        toast('Synced from your other device');
+        show('roster');
+      } catch (e) {
+        err.textContent = e.message;
+      }
+    },
+  });
+}
+
+/**
  * Section: encrypted sync across devices.
  *
  * Everything is encrypted on this device before it is sent, using a key
@@ -470,37 +517,8 @@ function renderSyncCard(container) {
         redraw();
       },
     });
-    const joinBtn = el('button', {
-      className: 'btn btn-block', textContent: 'Use a code from another device',
-      onclick: async () => {
-        const entered = await promptText('Enter sync code', 'Code from your other device');
-        if (!entered) return;
-        try {
-          const result = await sync.pull(entered);
-          if (!result) {
-            err.textContent = 'No data found for that code — check it and try again.';
-            return;
-          }
-          const ok = await confirmDialog(
-            'Replace what is on this device?',
-            'The data from that code will replace everything currently on this device. '
-            + 'Export a backup first if you are not sure.',
-            'Replace'
-          );
-          if (!ok) return;
-          store.importJSON(JSON.stringify(result.data));
-          sync.setDisabled(false);
-          sync.setCode(entered);
-          refreshOrgs();
-          toast('Synced from your other device');
-          show('roster');
-        } catch (e) {
-          err.textContent = e.message;
-        }
-      },
-    });
     return el('div', { className: 'card' }, [
-      el('h3', { textContent: 'Sync' }), blurb, err, startBtn, joinBtn,
+      el('h3', { textContent: 'Sync' }), blurb, err, startBtn, joinButton(err),
     ]);
   }
 
@@ -578,6 +596,7 @@ function renderSyncCard(container) {
     ]),
     el('div', { className: 'faint', textContent: state }),
     err,
+    joinButton(err),
     el('button', {
       className: 'btn btn-danger btn-block', textContent: 'Turn off sync on this device',
       onclick: async () => {
