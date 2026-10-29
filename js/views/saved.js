@@ -284,7 +284,8 @@ function renderOpen(roster, container) {
   // roster never means scrolling past it. Rarer ones wait at the foot.
   const actions = [
     exportButton(roster, people, shifts, (replies) => {
-      store.updateRoster(roster.id, { responses: replies });
+      // Merged, so answers staff gave on their own link aren't wiped by a check.
+      store.updateRoster(roster.id, { responses: { ...roster.responses, ...replies } });
       redraw();
     }),
     el('button', {

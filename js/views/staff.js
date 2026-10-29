@@ -40,9 +40,42 @@ function newSwapId() {
 }
 
 /**
- * The "Your upcoming shifts" card. With swaps on, each shift can be offered to
- * a colleague, and says how an ask for it is going; shifts handed over are
- * listed after, so they don't just vanish.
+ * Their yes or no to one shift: what they last said (here, or as the roster
+ * already has it), and buttons to say it or change it. Sent straight away.
+ */
+function answerRow(s, sent, change) {
+  const mine = sent.shiftReplies.find((r) => r.ref === s.ref);
+  const yes = mine ? mine.yes : s.reply === 'yes' ? true : s.reply === 'no' ? false : null;
+  /** Send this answer, unless it is what they already said. */
+  const answer = (value) => {
+    if (yes === value) return;
+    change(
+      () => { sent.shiftReplies = [...sent.shiftReplies.filter((r) => r.ref !== s.ref), { ref: s.ref, yes: value }]; },
+      value ? 'Sent: you can do it' : 'Sent: you can\'t do it',
+    );
+  };
+  return el('div', { className: 'spread' }, [
+    el('span', {
+      className: 'faint',
+      textContent: yes === null ? 'Can you do this one?' : yes ? 'You said you can do it' : 'You said you can\'t do it',
+    }),
+    el('div', { className: 'row-tight' }, [
+      el('button', {
+        className: yes === true ? 'btn btn-sm btn-primary' : 'btn btn-sm', textContent: 'I can do it',
+        'aria-pressed': String(yes === true), onclick: () => answer(true),
+      }),
+      el('button', {
+        className: yes === false ? 'btn btn-sm btn-danger' : 'btn btn-sm', textContent: 'Can\'t do it',
+        'aria-pressed': String(yes === false), onclick: () => answer(false),
+      }),
+    ]),
+  ]);
+}
+
+/**
+ * The "Your upcoming shifts" card. Each shift can be answered yes or no. With
+ * swaps on, each can also be offered to a colleague, and says how an ask for
+ * it is going; shifts handed over are listed after, so they don't just vanish.
  */
 function shiftList(info, swaps, sent, change) {
   const shifts = info.shifts || [];
@@ -56,14 +89,17 @@ function shiftList(info, swaps, sent, change) {
       placeText(s),
       s.note ? el('span', { className: 'faint', textContent: ` · ${s.note}` }) : null,
     ]);
-    if (!swaps || !s.ref) return line;
+    // Pages published before answers existed have no refs to answer.
+    if (!s.ref) return line;
+    const reply = answerRow(s, sent, change);
+    if (!swaps) return el('div', { className: 'swap-row' }, [line, reply]);
 
     // An ask still going: say where it is, and let them take it back.
     const ask = sent.swapAsks.find((a) => a.ref === s.ref);
     if (ask) {
       const known = out.find((o) => o.id === ask.id);
       const who = known?.toName || swaps.colleagues.find((c) => c.id === ask.toId)?.name || 'them';
-      return el('div', { className: 'swap-row' }, [line, el('div', { className: 'spread' }, [
+      return el('div', { className: 'swap-row' }, [line, reply, el('div', { className: 'spread' }, [
         el('span', {
           className: 'faint',
           textContent: known?.status === 'accepted'
@@ -79,7 +115,7 @@ function shiftList(info, swaps, sent, change) {
 
     // Otherwise offer it, saying how the last ask for it ended if it was turned down.
     const last = out.filter((o) => o.ref === s.ref && (o.status === 'declined' || o.status === 'rejected')).pop();
-    return el('div', { className: 'swap-row' }, [line, el('div', { className: 'spread' }, [
+    return el('div', { className: 'swap-row' }, [line, reply, el('div', { className: 'spread' }, [
       el('span', {
         className: 'faint',
         textContent: !last ? '' : last.status === 'declined' ? `${last.toName} said no` : `${org} didn't approve ${last.toName} taking it`,
@@ -218,6 +254,8 @@ export async function render(container, key) {
     // Asks still going (the owner's app forgets finished ones) and answers not yet taken in.
     swapAsks: (mine?.value?.swapAsks || []).filter((a) => !settled.has(a.id)),
     swapAnswers: (mine?.value?.swapAnswers || []).filter((a) => waiting.has(a.id)),
+    // Their answers to shifts still on their page; ones for shifts gone are dropped.
+    shiftReplies: (mine?.value?.shiftReplies || []).filter((r) => (info.shifts || []).some((s) => s.ref === r.ref)),
   };
 
   /** Write everything in `sent` to their mailbox. Throws a readable error. */
@@ -253,9 +291,9 @@ export async function render(container, key) {
     fill(shiftsCard, shiftList(info, swaps, sent, change));
     fill(askedCard, swaps ? askedOfMe(info, swaps, sent, change) : null);
   };
-  /** Apply a swap change to `sent`, send it, and redraw; undone if it couldn't be sent. */
+  /** Apply a swap or answer change to `sent`, send it, and redraw; undone if it couldn't be sent. */
   const change = async (update, done) => {
-    const before = { swapAsks: sent.swapAsks, swapAnswers: sent.swapAnswers };
+    const before = { swapAsks: sent.swapAsks, swapAnswers: sent.swapAnswers, shiftReplies: sent.shiftReplies };
     update();
     try {
       await send();
@@ -270,7 +308,7 @@ export async function render(container, key) {
 
   fill(container, [
     el('h2', { textContent: first ? `Hi ${first}` : 'Your availability' }),
-    el('p', { className: 'muted', textContent: `Tap the dates you can't work${info.org ? ` for ${info.org}` : ''}, then Save. Tap again to undo.` }),
+    el('p', { className: 'muted', textContent: `Say whether you can do each of your shifts: that's sent straight away. Then tap the dates you can't work${info.org ? ` for ${info.org}` : ''} and Save. Tap again to undo.` }),
     swaps ? el('div', { className: 'notice' }, [
       el('strong', { textContent: 'Shift swaps are on' }),
       el('div', {

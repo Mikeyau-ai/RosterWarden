@@ -454,6 +454,8 @@ pre.roster-text {
 
 /* ── team: part switcher, skills grid, and the sheet the builder opens ─ */
 .btn[aria-pressed="true"] { background: var(--accent-lo); border-color: var(--accent); color: var(--accent); }
+/* A chosen "no" (a staff member who can't do a shift) stays red, not the accent. */
+.btn-danger[aria-pressed="true"] { background: transparent; border-color: var(--bad); color: var(--bad); }
 .skill-wrap { overflow-x: auto; margin-top: .6rem; border: 1px solid var(--line); border-radius: var(--radius); }
 .skill-grid { border-collapse: collapse; width: 100%; font-size: .85rem; }
 .skill-grid th, .skill-grid td { padding: .45rem .5rem; border-bottom: 1px solid var(--line); text-align: center; }

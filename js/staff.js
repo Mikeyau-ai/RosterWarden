@@ -8,12 +8,14 @@
  * replace the away dates that came from their link before (tagged
  * `source: 'staff'`), and away dates the owner entered are never touched.
  *
- * The same mailboxes carry shift swaps (see "Shift swaps" at the end).
+ * The same mailboxes carry shift swaps (see "Shift swaps" at the end), and
+ * each person's yes or no to their own shifts (see takeReplies).
  */
 import { store } from './store.js';
 import * as link from './staff-link.js';
 import { todayISO, toDays, fromDays, formatDate, auditRoster, shiftOn } from './scheduler.js';
 import { shiftTimes } from './export.js';
+import { responseKey } from './sources/planning-center.js';
 
 /** Tag on away dates that came from a person's own link. */
 export const SOURCE = 'staff';
@@ -114,6 +116,7 @@ export async function collect(ids = null) {
     if (!box || box.replaced) continue;
     if (p.staffLink.lastFromStaff && box.updatedAt <= p.staffLink.lastFromStaff) continue;
     takeSwaps(p, box.value);
+    takeReplies(p, box.value);
     const dates = cleanDates(box.value?.awayDates);
     store.replaceSourcedBlackouts(p.id, SOURCE, dates.map((d) => ({ start: d, end: d, reason: 'from their link' })));
     patchLink(p.id, { lastFromStaff: box.updatedAt, note: String(box.value?.note || '').slice(0, NOTE_MAX) });
@@ -149,6 +152,12 @@ function describePlace(place, roster) {
   };
 }
 
+/** 'yes', 'no' or null: the answer a roster holds for one place (from their link or Planning Center). */
+function replyOf(roster, place) {
+  const code = roster.responses?.[responseKey(place)];
+  return code === 'C' ? 'yes' : code === 'D' ? 'no' : null;
+}
+
 /** A person's upcoming shifts from saved rosters, for their link page. */
 function upcomingShifts(person) {
   const today = todayISO();
@@ -156,7 +165,7 @@ function upcomingShifts(person) {
     .filter((r) => r.orgId === person.orgId && !r.draft)
     .flatMap((r) => r.assignments
       .filter((a) => a.personId === person.id && a.date >= today)
-      .map((a) => ({ ...describePlace(a, r), ref: placeRef(r.id, a) })))
+      .map((a) => ({ ...describePlace(a, r), ref: placeRef(r.id, a), reply: replyOf(r, a) })))
     .sort((x, y) => x.date.localeCompare(y.date))
     .slice(0, 60);
 }
@@ -387,6 +396,30 @@ function takeSwaps(person, value) {
     }
   }
   store.save();
+}
+
+/**
+ * Take in a person's yes or no to their own upcoming shifts. Like everything
+ * a page sends, it is their whole list, so taking it in again changes nothing.
+ * Answers go in the roster's `responses` with the same codes Planning Center
+ * replies use ('C' can do it, 'D' can't), so the roster shows ✓ or ✕ and a
+ * "can't" lands in its declined list. A place that has since gone to someone
+ * else no longer matches, so their answer simply drops.
+ */
+function takeReplies(person, value) {
+  const replies = Array.isArray(value?.shiftReplies) ? value.shiftReplies.slice(0, 200) : [];
+  for (const r of replies) {
+    if (typeof r?.yes !== 'boolean') continue;
+    const found = findPlace(person, String(r.ref || ''));
+    if (!found) continue;
+    const { roster, place } = found;
+    const key = responseKey(place);
+    const code = r.yes ? 'C' : 'D';
+    if (roster.responses?.[key] === code) continue;
+    store.updateRoster(roster.id, { responses: { ...roster.responses, [key]: code } });
+    const { shift } = describePlace(place, roster);
+    swapNews.push(`${person.name.split(' ')[0]} ${r.yes ? 'can do' : 'can\'t do'} ${formatDate(place.date, { withWeekday: false })} ${shift}`);
+  }
 }
 
 /** What a person's link page needs for swaps: the setting, their colleagues, and the asks to and from them. */
