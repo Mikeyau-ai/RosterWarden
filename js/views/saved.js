@@ -13,6 +13,7 @@ import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
 import { show } from '../app.js';
+import { openDayShifts } from './day-shifts.js';
 import * as builderView from './roster.js';
 import * as teamView from './team.js';
 import * as sync from '../sync.js';
@@ -209,7 +210,7 @@ function refill(roster) {
   return { assignments: fresh.assignments, notes: fresh.notes };
 }
 
-// Earlier assignments of the open roster, newest last, for Undo.
+// Earlier assignments and day shifts of the open roster, newest last, for Undo.
 const undo = { id: null, stack: [] };
 
 /** Build the full day-by-day view of one roster, plus everything you can do with it. */
@@ -223,10 +224,11 @@ function renderOpen(roster, container) {
     onclick: () => { openId = null; redraw(); },
   });
 
-  /** Remember the current assignments for Undo before they change. */
+  /** Remember the current assignments and day shifts for Undo before they change. */
   const remember = () => {
     if (undo.id !== roster.id) { undo.id = roster.id; undo.stack = []; }
-    undo.stack.push(roster.assignments);
+    const now = store.roster(roster.id);
+    undo.stack.push({ assignments: now.assignments, dayShifts: now.dayShifts });
   };
 
   /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
@@ -237,6 +239,15 @@ function renderOpen(roster, container) {
       notes: auditRoster({ ...roster, assignments: next }, store.people(), store.shifts(), store.roles()),
     });
     redraw();
+  };
+
+  /** Save a changed set of day shifts (and the assignments that go with it) with its notes re-checked. */
+  const changeDays = (dayShifts, assignments) => {
+    remember();
+    store.updateRoster(roster.id, {
+      dayShifts, assignments,
+      notes: auditRoster({ ...roster, dayShifts, assignments }, store.people(), store.shifts(), store.roles()),
+    });
   };
 
   /** Refill the roster around what it keeps, and show the result. */
@@ -265,7 +276,7 @@ function renderOpen(roster, container) {
   };
 
   const cards = editing
-    ? editableDayCards(roster, people, shifts, change)
+    ? editableDayCards(roster, people, shifts, change, (day) => openDayShifts(roster.id, day, changeDays, redraw))
     : dayCards(roster, people, shifts, change);
 
   // The everyday actions sit right under the title, so sharing or fixing a
@@ -284,8 +295,8 @@ function renderOpen(roster, container) {
       onclick: () => {
         const prev = undo.stack.pop();
         store.updateRoster(roster.id, {
-          assignments: prev,
-          notes: auditRoster({ ...roster, assignments: prev }, store.people(), store.shifts(), store.roles()),
+          assignments: prev.assignments, dayShifts: prev.dayShifts,
+          notes: auditRoster({ ...roster, ...prev }, store.people(), store.shifts(), store.roles()),
         });
         redraw();
       },

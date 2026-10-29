@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildRoster, auditRoster, shiftsOn, shiftOn, rosterShiftList, formatTable, runsOn,
+  buildRoster, auditRoster, shiftsOn, shiftOn, rosterShiftList, formatTable, runsOn, copyDayShifts,
 } from '../js/scheduler.js';
 import { rosterLines, formatMessage, hoursByPerson, messageFor } from '../js/export.js';
 
@@ -125,4 +125,30 @@ test('locked places on a one-off shift survive a rebuild', () => {
   const kept = r.assignments.filter((a) => a.shiftId === 900);
   assert.equal(kept.length, 3);
   assert.ok(kept.some((a) => a.personId === 5 && a.locked));
+});
+
+test('copyDayShifts fills missing dates with unfiltered deep copies and keeps existing lists', () => {
+  const mondays = [{ ...usual[0], days: [0], roles: [{ roleId: 7, count: 1 }] }];
+  const kept = [oneOff];
+  const roster = { days: [D1, D2], dayShifts: { [D1]: kept }, assignments: [] };
+  const out = copyDayShifts(roster, mondays);
+  assert.equal(out[D1], kept);
+  // Tuesday gets the Monday-only shift too, as an older roster had every shift every day.
+  assert.deepEqual(out[D2], [{ id: 10, name: 'Cafe', start: '08:00', end: '12:00', headcount: 1, roles: [{ roleId: 7, count: 1 }] }]);
+  out[D2][0].roles[0].count = 5;
+  assert.equal(mondays[0].roles[0].count, 1);
+  // A roster with no lists at all gets one per date.
+  assert.deepEqual(Object.keys(copyDayShifts({ days: [D1, D2], assignments: [] }, usual)), [D1, D2]);
+});
+
+test('formatMessage shows a shift note after its label', () => {
+  const r = build({ [D1]: usual, [D2]: [oneOff] });
+  assert.ok(formatMessage(r, people, usual).includes('Gala 18:00–22:00 (Black tie)'));
+});
+
+test('auditRoster flags the gap after a headcount is raised', () => {
+  const r = build({ [D1]: usual, [D2]: [oneOff] });
+  assert.deepEqual(auditRoster(r, people, usual).filter((n) => n.includes('Gala')), []);
+  const raised = { ...r, dayShifts: { ...r.dayShifts, [D2]: [{ ...oneOff, headcount: 5 }] } };
+  assert.ok(auditRoster(raised, people, usual).some((n) => n.includes('Gala: only 3 of 5 filled.')));
 });

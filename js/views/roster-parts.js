@@ -39,6 +39,30 @@ export function candidatesFor(roster, people, date) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The shift's name cell on a day card, with its note (if any) faint underneath. */
+function shiftName(shift) {
+  return el('span', { className: 'sname' }, [
+    shift.name,
+    shift.note ? el('div', { className: 'faint', textContent: shift.note }) : null,
+  ]);
+}
+
+/** The faint line a day with no shifts shows. */
+function noShifts() {
+  return el('div', { className: 'faint', textContent: 'No shifts this day' });
+}
+
+/**
+ * The "Shifts for this day" button under a date in edit mode, or null when
+ * there is nothing to call (`onEditDay` not given).
+ */
+function editDayButton(day, onEditDay) {
+  return onEditDay ? el('button', {
+    type: 'button', className: 'btn btn-sm', textContent: 'Shifts for this day ›',
+    onclick: () => onEditDay(day),
+  }) : null;
+}
+
 /**
  * One shift's row in edit mode when the shift is made of roles: a line per
  * role with its people as removable chips and a picker of those who can do it.
@@ -89,16 +113,17 @@ function editableRoleRow(roster, people, shift, day, here, roleById, apply) {
       !chips.length && !adder ? el('span', { className: 'faint', textContent: 'nobody free' }) : null,
     ]);
   });
-  return el('div', { className: 'day-shift' }, [el('span', { className: 'sname', textContent: shift.name }), el('div', {}, lines)]);
+  return el('div', { className: 'day-shift' }, [shiftName(shift), el('div', {}, lines)]);
 }
 
 /**
  * The day-by-day cards in edit mode: every shift row shows its people as
  * removable chips plus an "add" picker. `apply(nextAssignments)` is called with
  * a new assignments array on every change and is responsible for persisting it
- * and re-rendering.
+ * and re-rendering. `onEditDay(day)`, when given, adds a button under each date
+ * that opens that day's shifts for changing.
  */
-export function editableDayCards(roster, people, shifts, apply) {
+export function editableDayCards(roster, people, shifts, apply, onEditDay = null) {
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
   const roles = store.roles();
   const roleById = new Map(roles.map((r) => [r.id, r]));
@@ -146,7 +171,7 @@ export function editableDayCards(roster, people, shifts, apply) {
 
       const short = here.length < shift.headcount;
       return el('div', { className: 'day-shift' }, [
-        el('span', { className: 'sname', textContent: shift.name }),
+        shiftName(shift),
         el('span', { className: short ? 'swho edit gap' : 'swho edit' }, [
           ...chips,
           adder,
@@ -159,7 +184,8 @@ export function editableDayCards(roster, people, shifts, apply) {
 
     return el('div', { className: 'day-card' }, [
       el('div', { className: 'day-date', textContent: formatDate(day) }),
-      ...rows,
+      editDayButton(day, onEditDay),
+      ...(rows.length ? rows : [noShifts()]),
     ]);
   });
 }
@@ -358,7 +384,7 @@ export function dayCards(roster, people, shifts, apply = null) {
           const strays = here.filter((a) => !listed.has(a.roleId ?? null));
           if (strays.length) places.push({ label: 'Others', count: 0, mine: strays });
           return el('div', { className: 'day-shift' }, [
-            el('span', { className: 'sname', textContent: shift.name }),
+            shiftName(shift),
             el('div', {}, places.map((p) => {
               const short = Math.max(0, p.count - p.mine.length);
               return el('div', { className: short ? 'swho gap' : 'swho' }, [
@@ -380,7 +406,7 @@ export function dayCards(roster, people, shifts, apply = null) {
           gap = true;
         }
         return el('div', { className: 'day-shift' }, [
-          el('span', { className: 'sname', textContent: shift.name }),
+          shiftName(shift),
           el('span', { className: gap ? 'swho gap' : 'swho' }, [
             ...(here.length ? nameNodes(here) : ['Nobody available']), tail,
             // A removed shift has nothing left to fill.
@@ -391,7 +417,7 @@ export function dayCards(roster, people, shifts, apply = null) {
 
     return el('div', { className: 'day-card' }, [
       el('div', { className: 'day-date', textContent: formatDate(day) }),
-      ...rows,
+      ...(rows.length ? rows : [noShifts()]),
     ]);
   });
 }

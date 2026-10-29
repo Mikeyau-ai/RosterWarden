@@ -276,6 +276,11 @@ export const store = {
       .sort((a, b) => a.order - b.order || a.id - b.id);
   },
 
+  /** A fresh unique id, for a one-off shift that lives only on a roster's day. */
+  newShiftId() {
+    return newId();
+  },
+
   /** Add a shift to the current organisation and return it. */
   addShift({ name = 'Day', start = '', end = '', headcount = 1 } = {}) {
     const shift = {

@@ -260,6 +260,23 @@ export function usualDayShifts(shifts, dates) {
     }))]));
 }
 
+/**
+ * Every date of a roster with a list of its own, ready to edit: lists it
+ * already has are kept as they are, and a missing date gets a deep copy of ALL
+ * the usual shifts (not filtered by weekday), as older rosters were built with
+ * every shift on every day. Returns a new `{ date: entries }` object.
+ */
+export function copyDayShifts(roster, usual) {
+  const out = { ...(roster.dayShifts || {}) };
+  for (const date of rosterDates(roster)) {
+    if (out[date]) continue;
+    out[date] = usual.map(({ id, name, start, end, headcount, roles }) => ({
+      id, name, start, end, headcount, roles: (roles || []).map((r) => ({ ...r })),
+    }));
+  }
+  return out;
+}
+
 /** How far back (in days) a saved roster still counts towards who is due a turn. */
 const HISTORY_DAYS = 90;
 
