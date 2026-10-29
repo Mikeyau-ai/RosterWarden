@@ -205,6 +205,61 @@ function slotsOf(shift) {
   return [{ roleId: null, count: Math.max(0, shift.headcount) }];
 }
 
+/**
+ * The shifts that run on `date` in `roster`: its own list for that day when it
+ * has one (`roster.dayShifts`), otherwise the organisation's usual shifts.
+ */
+export function shiftsOn(roster, date, usual) {
+  return roster?.dayShifts?.[date] ?? usual;
+}
+
+/**
+ * One shift as it runs on `date` in `roster`, found by id: the day's own entry
+ * first, then the usual shifts. Undefined when neither knows it (removed).
+ */
+export function shiftOn(roster, date, shiftId, usual) {
+  return shiftsOn(roster, date, usual).find((s) => s.id === shiftId)
+    ?? usual.find((s) => s.id === shiftId);
+}
+
+/**
+ * The shifts to lay out as columns for the whole roster: the usual shifts when
+ * it has no per-day lists, otherwise every distinct shift (by id) across its
+ * days, in order of first appearance.
+ */
+export function rosterShiftList(roster, usual) {
+  if (!roster?.dayShifts) return usual;
+  const seen = new Set();
+  const out = [];
+  // Every rostered day, so one without a list of its own still adds the usual shifts.
+  for (const day of rosterDates(roster)) {
+    for (const s of shiftsOn(roster, day, usual)) {
+      if (seen.has(s.id)) continue;
+      seen.add(s.id);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/** True when a usual shift runs on `date`: no `days` set means every day. */
+export function runsOn(shift, date) {
+  return !Array.isArray(shift.days) || shift.days.includes(weekdayOf(date));
+}
+
+/**
+ * Each date's own copy of the usual shifts that run that weekday, for a roster
+ * to keep. Copies keep the usual shift's id, so places, locks and swaps still
+ * match it; later edits on the Team tab no longer reach a roster already built.
+ */
+export function usualDayShifts(shifts, dates) {
+  return Object.fromEntries(dates.map((date) => [date, shifts
+    .filter((s) => runsOn(s, date))
+    .map(({ id, name, start, end, headcount, roles }) => ({
+      id, name, start, end, headcount, roles: (roles || []).map((r) => ({ ...r })),
+    }))]));
+}
+
 /** How far back (in days) a saved roster still counts towards who is due a turn. */
 const HISTORY_DAYS = 90;
 
@@ -254,7 +309,7 @@ function pick(day, people, usedToday, placedIds, incompatible, worked, lastWorke
  */
 export function buildRoster({
   orgId, name, people, shifts, clashes, start, end, weekdays, dates, roles = [],
-  history = [], locked = [],
+  history = [], locked = [], dayShifts,
 }) {
   // `dates` is the canonical input: the exact days to roster, as chosen on the
   // calendar. start/end/weekdays remain supported as a shorthand that derives
@@ -278,6 +333,12 @@ export function buildRoster({
     assignments: [],
     notes: [],
   };
+  // Every roster keeps its own shifts for each day: the lists given, kept only
+  // for the days actually rostered, and the usual shifts that run on any day
+  // without one.
+  const given = dayShifts || {};
+  const usualFor = usualDayShifts(shifts, days.filter((d) => !given[d]));
+  roster.dayShifts = Object.fromEntries(days.map((d) => [d, given[d] || usualFor[d]]));
 
   // Guard the degenerate inputs up front so the main loop can assume it has
   // something to work with.
@@ -288,8 +349,10 @@ export function buildRoster({
       : 'No rostered days fall in the selected date range.');
     return roster;
   }
-  if (shifts.length === 0) {
-    roster.notes.push('This organisation has no shifts set up.');
+  if (days.every((d) => shiftsOn(roster, d, shifts).length === 0)) {
+    roster.notes.push(shifts.length
+      ? 'None of your shifts run on the dates picked.'
+      : 'This organisation has no shifts set up.');
     return roster;
   }
   if (roll.length === 0) {
@@ -332,7 +395,7 @@ export function buildRoster({
       roster.assignments.push({ ...a, locked: true });
     }
 
-    for (const shift of shifts) {
+    for (const shift of shiftsOn(roster, day, shifts)) {
       const placedIds = new Set(pinned.filter((a) => a.shiftId === shift.id).map((a) => a.personId));
       let slots = slotsOf(shift);
 
@@ -411,7 +474,7 @@ export function auditRoster(roster, people, shifts, roles = []) {
   // Understaffed shifts, day by day, in shift order. A shift with roles is
   // checked role by role, so "needs a drummer" is not hidden by a full band.
   for (const day of days) {
-    for (const shift of shifts) {
+    for (const shift of shiftsOn(roster, day, shifts)) {
       if (shift.roles?.length) {
         for (const r of shift.roles) {
           const n = roster.assignments.filter(
@@ -471,7 +534,7 @@ export function auditRoster(roster, people, shifts, roles = []) {
       notes.push(`${p.name} was not rostered at all - no days ticked in their availability.`);
     } else if (days.every((d) => !canWork(p, d))) {
       notes.push(`${p.name} was not rostered at all - unavailable on every rostered day.`);
-    } else if (!shifts.some((s) => !s.roles?.length || s.roles.some((r) => canDoRole(p, r.roleId, roleById)))) {
+    } else if (!rosterShiftList(roster, shifts).some((s) => !s.roles?.length || s.roles.some((r) => canDoRole(p, r.roleId, roleById)))) {
       // Every shift here is made of roles and they can do none of them.
       notes.push((p.roleIds || []).length === 0
         ? `${p.name} was not rostered at all - no roles ticked.`
@@ -513,11 +576,12 @@ export function formatTable(roster, people, shifts, roles = []) {
   }
 
   const days = [...new Set(roster.assignments.map((a) => a.date))].sort();
-  const headers = ['Date', 'Day', ...shifts.map((s) => shiftLabel(s))];
+  const columns = rosterShiftList(roster, shifts);
+  const headers = ['Date', 'Day', ...columns.map((s) => shiftLabel(s))];
   const rows = days.map((d) => [
     formatDate(d, { withWeekday: false }),
     weekdayName(d),
-    ...shifts.map((s) => (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-'),
+    ...columns.map((s) => (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-'),
   ]);
 
   // Column widths are the widest cell in each column, header included.

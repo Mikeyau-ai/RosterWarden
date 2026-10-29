@@ -10,7 +10,7 @@
  */
 import { store } from '../store.js';
 import {
-  buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO, followOnDates,
+  buildRoster, formatDate, toDays, fromDays, auditRoster, todayISO, followOnDates, usualDayShifts,
 } from '../scheduler.js';
 import { parseAvailability, describe, AIError } from '../ai.js';
 import {
@@ -224,6 +224,8 @@ export function render(container) {
       startDate: dates[0],
       endDate: dates[dates.length - 1],
       days: dates,
+      // Its own copy of each day's shifts, as a built roster keeps.
+      dayShifts: usualDayShifts(store.shifts(), dates),
       assignments: [],
       notes: [],
       // Marks it as being filled in by hand until the scheduler fills the rest.

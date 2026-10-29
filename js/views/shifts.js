@@ -6,8 +6,38 @@
  * shift that matters most (e.g. the one hardest to cover) first.
  */
 import { store } from '../store.js';
-import { el, fill, confirmDialog, promptText, toast, TIME_STEP_SECONDS } from '../ui.js';
+import {
+  el, fill, confirmDialog, promptText, toast, collapsible, weekdayPicker, DAY_LABELS, TIME_STEP_SECONDS,
+} from '../ui.js';
+import { shiftTimes } from '../export.js';
 import * as pco from '../sources/planning-center.js';
+
+// The shift just added, so its card opens ready to fill in while the rest stay folded.
+let justAdded = null;
+
+/** "Every day", "Mon–Fri", or "Sat, Sun" for a shift's days (none set = every day). */
+function daysLabel(days) {
+  if (!Array.isArray(days) || days.length === 7) return 'Every day';
+  if (days.length === 0) return 'No days';
+  // Split into runs of days in a row; three or more read better as a range.
+  const runs = [];
+  for (const d of [...days].sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && d === last[last.length - 1] + 1) last.push(d);
+    else runs.push([d]);
+  }
+  return runs.map((run) => (run.length >= 3
+    ? `${DAY_LABELS[run[0]]}–${DAY_LABELS[run[run.length - 1]]}`
+    : run.map((d) => DAY_LABELS[d]).join(', '))).join(', ');
+}
+
+/** The folded line for a shift: name · days · times · people. */
+function shiftSummary(shift) {
+  return [
+    shift.name, daysLabel(shift.days), shiftTimes(shift),
+    `${shift.headcount} ${shift.headcount === 1 ? 'person' : 'people'}`,
+  ].filter(Boolean).join(' · ');
+}
 
 /** Times a new shift should start with: the organisation's opening hours if set. */
 function defaultTimes() {
@@ -21,7 +51,7 @@ export function render(container) {
     el('h2', { textContent: 'Shifts' }),
     el('div', {
       className: 'faint',
-      textContent: 'Shifts are filled in the order listed below. "Staff needed" is how many people that shift requires.',
+      textContent: 'Shifts are filled in the order listed below. Tap one to change it. "Staff needed" is how many people that shift requires.',
     }),
   ]);
 
@@ -35,8 +65,8 @@ export function render(container) {
         className: 'btn btn-primary btn-block', textContent: '+ Add shift',
         onclick: () => {
           const t = defaultTimes();
-          store.addShift({ name: 'Cafe', start: t.start || '08:00',
-                           end: t.end || '12:00', headcount: 2 });
+          justAdded = store.addShift({ name: 'Cafe', start: t.start || '08:00',
+                                       end: t.end || '12:00', headcount: 2 }).id;
           render(container);
         },
       }),
@@ -53,7 +83,7 @@ export function render(container) {
     className: 'btn btn-primary btn-block', textContent: '+ Add shift',
     onclick: () => {
       const t = defaultTimes();
-      store.addShift({ name: 'Shift', start: t.start, end: t.end, headcount: 1 });
+      justAdded = store.addShift({ name: 'Shift', start: t.start, end: t.end, headcount: 1 }).id;
       render(container);
     },
   }));
@@ -168,13 +198,22 @@ function renderShiftRoles(shift, container) {
   return el('div', {}, [el('label', { className: 'label', textContent: 'Roles' }), ...rows, add, fromPco]);
 }
 
-/** Build one editable card for a shift. */
+/**
+ * Build one shift card: folded to a one-line summary (name · days · times ·
+ * people), and opening to edit it. The summary follows every change.
+ */
 function renderShiftCard(shift, index, total, container) {
+  /** Save a change to this shift and bring the folded line up to date. */
+  const update = (patch) => {
+    store.updateShift(shift.id, patch);
+    card.querySelector('.fold-head strong').textContent = shiftSummary(shift);
+  };
+
   const nameInput = el('input', {
     type: 'text', value: shift.name,
     onblur: () => {
       const value = nameInput.value.trim();
-      if (value) store.updateShift(shift.id, { name: value });
+      if (value) update({ name: value });
       else nameInput.value = shift.name;
     },
   });
@@ -183,12 +222,19 @@ function renderShiftCard(shift, index, total, container) {
   // minute, and a 5-minute picker is far quicker to thumb through on a phone.
   const startInput = el('input', {
     type: 'time', step: String(TIME_STEP_SECONDS), value: shift.start,
-    onchange: () => store.updateShift(shift.id, { start: startInput.value }),
+    onchange: () => update({ start: startInput.value }),
   });
   const endInput = el('input', {
     type: 'time', step: String(TIME_STEP_SECONDS), value: shift.end,
-    onchange: () => store.updateShift(shift.id, { end: endInput.value }),
+    onchange: () => update({ end: endInput.value }),
   });
+
+  // The weekdays it runs on. No days set means every day, which is how every
+  // shift made before this existed behaves.
+  const daysPicker = weekdayPicker(
+    Array.isArray(shift.days) ? shift.days : [0, 1, 2, 3, 4, 5, 6],
+    (days) => update({ days: days.length === 7 ? undefined : days }),
+  );
 
   const headcountInput = el('input', {
     type: 'number', min: '0', step: '1', value: String(shift.headcount),
@@ -203,7 +249,7 @@ function renderShiftCard(shift, index, total, container) {
       return;
     }
     headcountErr.textContent = '';
-    store.updateShift(shift.id, { headcount: n });
+    update({ headcount: n });
   });
 
   const upBtn = el('button', {
@@ -228,8 +274,9 @@ function renderShiftCard(shift, index, total, container) {
     },
   });
 
-  return el('div', { className: 'card' }, [
+  const card = collapsible(`shift-${shift.id}`, shiftSummary(shift), [
     el('div', {}, [el('label', { className: 'label', textContent: 'Name' }), nameInput]),
+    el('div', {}, [el('label', { className: 'label', textContent: 'Runs on' }), daysPicker]),
     el('div', { className: 'grid-2' }, [
       el('div', {}, [el('label', { className: 'label', textContent: 'Start' }), startInput]),
       el('div', {}, [el('label', { className: 'label', textContent: 'End' }), endInput]),
@@ -241,5 +288,6 @@ function renderShiftCard(shift, index, total, container) {
     ]),
     renderShiftRoles(shift, container),
     el('div', { className: 'row' }, [upBtn, downBtn, copyBtn, deleteBtn]),
-  ]);
+  ], { open: shift.id === justAdded });
+  return card;
 }

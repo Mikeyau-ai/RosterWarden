@@ -51,8 +51,12 @@ Four sections:
    (below). Once the list is long there's a search box, and **Select several**
    sets days, ticks a role, or pauses people in one go.
 3. **Shifts** (Team tab): the blocks of work a day is made of, e.g. `Cafe
-   08:00–12:00, 2 people needed`, filled in the order listed. **Copy** duplicates
-   a shift with its roles.
+   08:00–12:00, 2 people needed`, filled in the order listed. Each one folds to
+   a line (`Lunch · Mon–Fri · 11:00–15:00 · 3 people`); tap it to change it.
+   **Runs on** limits a shift to some days of the week (every day if all are
+   ticked). **Copy** duplicates a shift with its roles and days. A roster keeps
+   its own copy of each day's shifts when it is built, so changing a shift here
+   affects the rosters you build next, not ones already made.
 4. **New Roster**: tap the dates on the calendar, press **Build roster** (always
    pinned at the foot of the screen). It's saved straight away and opens under
    **Roster**; there is no separate Save. The "4 people · 2 shifts · Who can do

@@ -7,7 +7,7 @@
  * Every format lists every rostered day and every shift, so an unfilled shift
  * shows as a gap to chase rather than quietly vanishing.
  */
-import { formatDate, weekdayName } from './scheduler.js';
+import { formatDate, weekdayName, shiftsOn, shiftOn, rosterShiftList } from './scheduler.js';
 
 /**
  * The dates a roster covers, in order.
@@ -44,10 +44,11 @@ export function shiftHours(shift) {
 
 /** Hours rostered per person, as a Map of person id to hours. */
 export function hoursByPerson(roster, shifts) {
-  const hours = new Map(shifts.map((s) => [s.id, shiftHours(s)]));
   const out = new Map();
   for (const a of roster.assignments) {
-    out.set(a.personId, (out.get(a.personId) || 0) + (hours.get(a.shiftId) || 0));
+    // Hours come from the shift as it runs on that assignment's day.
+    const hours = shiftHours(shiftOn(roster, a.date, a.shiftId, shifts));
+    out.set(a.personId, (out.get(a.personId) || 0) + hours);
   }
   return out;
 }
@@ -57,7 +58,6 @@ export function hoursByPerson(roster, shifts) {
  * Null when they are not on the roster.
  */
 export function messageFor(roster, person, shifts, roles = []) {
-  const shiftOf = new Map(shifts.map((s) => [s.id, s]));
   const roleNames = new Map(roles.map((r) => [r.id, r.name]));
   const mine = roster.assignments
     .filter((a) => a.personId === person.id)
@@ -65,7 +65,7 @@ export function messageFor(roster, person, shifts, roles = []) {
   if (mine.length === 0) return null;
 
   const lines = mine.map((a) => {
-    const shift = shiftOf.get(a.shiftId);
+    const shift = shiftOn(roster, a.date, a.shiftId, shifts);
     const times = shiftTimes(shift);
     const detail = [
       shift ? [shift.name, times].filter(Boolean).join(' ') : 'removed shift',
@@ -117,33 +117,35 @@ function labelled(groups) {
 
 /** True when a roster is made of roles, so its spreadsheet needs a Role column. */
 function usesRoles(roster, shifts) {
-  return shifts.some((s) => s.roles?.length) || roster.assignments.some((a) => a.roleId != null);
+  return rosterShiftList(roster, shifts).some((s) => s.roles?.length) || roster.assignments.some((a) => a.roleId != null);
 }
 
 /**
  * The roster as rows: one per day, each with one entry per shift.
  *
- * Shifts follow the organisation's current order; a shift deleted since the
- * roster was saved still appears (as "(removed)") if anyone was on it.
+ * Shifts follow each day's own list (the organisation's current order unless
+ * the roster has its own); a shift deleted since the roster was saved still
+ * appears (as "(removed)") if anyone was on it.
  * Each shift entry is `{ shift, names, short, groups }`: `names` everyone on
  * it, `short` how many more people it needed, and `groups` the same split by
  * role (see groupsOf).
  */
 export function rosterLines(roster, people, shifts, roles = []) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const known = new Set(shifts.map((s) => s.id));
   const roleNames = new Map(roles.map((r) => [r.id, r.name]));
   const roleName = (id) => roleNames.get(id) || '(removed role)';
 
   return rosterDays(roster).map((date) => {
     const todays = roster.assignments.filter((a) => a.date === date);
+    const dayList = shiftsOn(roster, date, shifts);
+    const known = new Set(dayList.map((s) => s.id));
     const extra = [...new Set(todays.map((a) => a.shiftId))]
       .filter((id) => !known.has(id))
       .map((id) => ({ id, name: '(removed)', headcount: 0, start: '', end: '' }));
 
     return {
       date,
-      shifts: [...shifts, ...extra].map((shift) => {
+      shifts: [...dayList, ...extra].map((shift) => {
         const here = todays.filter((a) => a.shiftId === shift.id);
         const names = here.map((a) => nameOf.get(a.personId) || '(removed)');
         const groups = groupsOf(shift, here, nameOf, roleName);
@@ -198,14 +200,13 @@ export function formatMessage(roster, people, shifts, roles = []) {
  */
 export function formatPerPerson(roster, people, shifts, roles = []) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const shiftOf = new Map(shifts.map((s) => [s.id, s]));
   const roleNames = new Map(roles.map((r) => [r.id, r.name]));
   const manyShifts = new Set(roster.assignments.map((a) => a.shiftId)).size > 1;
 
   const byPerson = new Map();
   for (const a of [...roster.assignments].sort((x, y) => x.date.localeCompare(y.date))) {
     const name = nameOf.get(a.personId) || '(removed)';
-    const shift = shiftOf.get(a.shiftId);
+    const shift = shiftOn(roster, a.date, a.shiftId, shifts);
     // The shift name only when there are several; the role whenever the place had one.
     const detail = [
       manyShifts ? (shift ? shift.name : 'removed shift') : null,

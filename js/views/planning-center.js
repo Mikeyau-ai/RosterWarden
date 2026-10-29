@@ -7,7 +7,7 @@
  * decides what to ask for and writes the answers into the store.
  */
 import { store } from '../store.js';
-import { todayISO, formatDate } from '../scheduler.js';
+import { todayISO, formatDate, rosterShiftList } from '../scheduler.js';
 import * as pco from '../sources/planning-center.js';
 import { el, fill, toast, confirmDialog, dialog } from '../ui.js';
 
@@ -320,9 +320,11 @@ function askNotify(link, preview) {
  * position.
  */
 /** How the current organisation's people, shifts and roles map onto Planning Center. */
-function lookupFor(link) {
+function lookupFor(link, roster = null) {
   const people = new Map(store.people().map((p) => [p.id, p]));
   const shifts = new Map(store.shifts().map((s) => [s.id, s]));
+  // A one-off shift on this roster has no usual shift, but is still named in reports.
+  for (const s of rosterShiftList(roster, [])) if (!shifts.has(s.id)) shifts.set(s.id, s);
   const roles = new Map(store.roles().map((r) => [r.id, r]));
   return {
     people, shifts,
@@ -357,7 +359,7 @@ export async function checkReplies(roster) {
 
 export async function sendToPlanningCenter(roster, status = () => {}) {
   const link = store.currentOrg().pco;
-  const { people, shifts, lookup } = lookupFor(link);
+  const { people, shifts, lookup } = lookupFor(link, roster);
   try {
     // Look first, change nothing: show what would happen before asking.
     status('Checking Planning Center…');

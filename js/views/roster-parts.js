@@ -12,7 +12,7 @@ import { store } from '../store.js';
 import { el, copyText, dialog, downloadText, toast, collapsible } from '../ui.js';
 import { canSend, sendToPlanningCenter, checkReplies } from './planning-center.js';
 import { responseKey } from '../sources/planning-center.js';
-import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork } from '../scheduler.js';
+import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork, shiftsOn, shiftOn } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
   hoursByPerson, messageFor,
@@ -103,7 +103,7 @@ export function editableDayCards(roster, people, shifts, apply) {
   const roles = store.roles();
   const roleById = new Map(roles.map((r) => [r.id, r]));
   return rosterDays(roster).map((day) => {
-    const rows = shifts.map((shift) => {
+    const rows = shiftsOn(roster, day, shifts).map((shift) => {
       const here = roster.assignments.filter(
         (a) => a.date === day && a.shiftId === shift.id
       );
@@ -173,7 +173,7 @@ export function editableDayCards(roster, people, shifts, apply) {
  */
 async function pickReplacement(roster, people, shifts, assignment, roleById, apply) {
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
-  const shiftOf = (id) => shifts.find((s) => s.id === id)?.name || '(removed)';
+  const shiftOf = (id, date) => shiftOn(roster, date, id, shifts)?.name || '(removed)';
   const roleLabel = (a) => (a.roleId != null ? `, ${roleById.get(a.roleId)?.name || 'removed role'}` : '');
   const day = assignment.date;
   const onDay = (personId, date) => roster.assignments.some((a) => a.date === date && a.personId === personId);
@@ -205,7 +205,7 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
     ])]);
     return [
       el('h2', { textContent: nameOf(assignment.personId) }),
-      el('div', { className: 'faint', textContent: `${formatDate(day)} · ${shiftOf(assignment.shiftId)}${roleLabel(assignment)}` }),
+      el('div', { className: 'faint', textContent: `${formatDate(day)} · ${shiftOf(assignment.shiftId, day)}${roleLabel(assignment)}` }),
       givable.length ? el('label', { className: 'label', textContent: 'Replace with' }) : null,
       el('div', { className: 'list' }, givable.map((p) => option(
         p.name,
@@ -218,7 +218,7 @@ async function pickReplacement(roster, people, shifts, assignment, roleById, app
         list.length ? el('label', { className: 'label', textContent: title }) : null,
         el('div', { className: 'list' }, list.map((b) => option(
           nameOf(b.personId),
-          `${b.date === day ? '' : `${formatDate(b.date)} · `}${shiftOf(b.shiftId)}${roleLabel(b)}`,
+          `${b.date === day ? '' : `${formatDate(b.date)} · `}${shiftOf(b.shiftId, b.date)}${roleLabel(b)}`,
           // Each takes the other's place, both pinned.
           roster.assignments.map((a) => {
             if (a === assignment) return { ...a, personId: b.personId, locked: true };
@@ -289,11 +289,11 @@ export function declinedCard(roster, people, shifts, apply) {
   const declined = roster.assignments.filter((a) => roster.responses?.[responseKey(a)] === 'D');
   if (declined.length === 0) return null;
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
-  const shiftOf = (id) => shifts.find((s) => s.id === id)?.name || '(removed)';
+  const shiftOf = (id, date) => shiftOn(roster, date, id, shifts)?.name || '(removed)';
   return el('div', { className: 'notice bad' }, [
     el('strong', { textContent: `${declined.length} declined` }),
     ...declined.map((a) => el('div', { className: 'spread' }, [
-      el('span', { textContent: `${nameOf(a.personId)} · ${formatDate(a.date, { withWeekday: false })} · ${shiftOf(a.shiftId)}` }),
+      el('span', { textContent: `${nameOf(a.personId)} · ${formatDate(a.date, { withWeekday: false })} · ${shiftOf(a.shiftId, a.date)}` }),
       el('button', {
         className: 'btn btn-sm', textContent: 'Replace',
         onclick: () => pickReplacement(roster, people, shifts, a, roleById, apply),
@@ -311,7 +311,6 @@ export function declinedCard(roster, people, shifts, apply) {
  */
 export function dayCards(roster, people, shifts, apply = null) {
   const nameOf = new Map(people.map((p) => [p.id, p.name]));
-  const known = new Set(shifts.map((s) => s.id));
   const roles = store.roles();
   const roleById = new Map(roles.map((r) => [r.id, r]));
 
@@ -340,9 +339,12 @@ export function dayCards(roster, people, shifts, apply = null) {
 
   return rosterDays(roster).map((day) => {
     const todays = roster.assignments.filter((a) => a.date === day);
+    // The shifts this day runs; a shift not among them is "(removed)".
+    const dayList = shiftsOn(roster, day, shifts);
+    const known = new Set(dayList.map((s) => s.id));
     const extraIds = [...new Set(todays.map((a) => a.shiftId))].filter((id) => !known.has(id));
 
-    const rows = [...shifts, ...extraIds.map((id) => ({ id, name: '(removed)', headcount: 0 }))]
+    const rows = [...dayList, ...extraIds.map((id) => ({ id, name: '(removed)', headcount: 0 }))]
       .map((shift) => {
         // A shift made of roles: a line per role, flagged when it is short.
         const here = todays.filter((a) => a.shiftId === shift.id);
@@ -463,7 +465,7 @@ export function roleGaps(roster, people, shifts, roles) {
   const days = roster.days?.length ? roster.days : [...new Set(roster.assignments.map((a) => a.date))];
   const found = new Map();   // roleId -> { days: Set, missing, shortDays: [] }
   for (const day of days) {
-    for (const shift of shifts) {
+    for (const shift of shiftsOn(roster, day, shifts)) {
       for (const r of shift.roles || []) {
         const n = roster.assignments.filter(
           (a) => a.date === day && a.shiftId === shift.id && a.roleId === r.roleId
@@ -653,7 +655,13 @@ function openExport(roster, people, shifts, onReplies) {
  */
 export function printRoster(roster, people, shifts) {
   const lines = rosterLines(roster, people, shifts, store.roles());
-  const columns = lines[0]?.shifts.map(({ shift }) => shift) || [];
+  // One column per distinct shift across the days (they differ when days have their own shifts).
+  const columns = [];
+  for (const day of lines) {
+    for (const { shift } of day.shifts) {
+      if (!columns.some((c) => c.id === shift.id)) columns.push(shift);
+    }
+  }
 
   const head = el('tr', {}, [
     el('th', { textContent: 'Date' }),
@@ -664,10 +672,14 @@ export function printRoster(roster, people, shifts) {
   ]);
   const body = lines.map((day) => el('tr', {}, [
     el('td', { className: 'print-date', textContent: formatDate(day.date) }),
-    ...day.shifts.map(({ groups, short }) => el('td', {}, [
-      groups.flatMap((g) => g.names.map((n) => (g.role ? `${n} (${g.role})` : n))).join(', ') || null,
-      short ? el('div', { className: 'print-gap', textContent: groups.some((g) => g.names.length) ? `needs ${short} more` : 'unfilled' }) : null,
-    ])),
+    ...columns.map((col) => {
+      // A shift that does not run this day leaves its cell empty.
+      const { groups, short } = day.shifts.find((x) => x.shift.id === col.id) || { groups: [], short: 0 };
+      return el('td', {}, [
+        groups.flatMap((g) => g.names.map((n) => (g.role ? `${n} (${g.role})` : n))).join(', ') || null,
+        short ? el('div', { className: 'print-gap', textContent: groups.some((g) => g.names.length) ? `needs ${short} more` : 'unfilled' }) : null,
+      ]);
+    }),
   ]));
 
   const sheet = el('section', { id: 'print-sheet' }, [
