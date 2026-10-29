@@ -254,8 +254,10 @@ This is a public static site: anything in it can be read by anyone.
 
 With **sync** on (the default when a sync server is configured), your data is
 encrypted on the device and kept on the server, which stores it but cannot read
-it. Your **sync code** brings everything back on a new phone. **Lose the code and
-the data is gone**: nobody else has ever held the key, which is the point.
+it. Your **sync code** brings everything back on a new phone: enter it from the
+welcome screen, or **Settings → Sync and backup → Use a code from another
+device**. **Lose the code and the data is gone**: nobody else has ever held the
+key, which is the point.
 
 Without sync, everything is in this browser's storage only, and **clearing your
 browsing data erases it**. Use **Settings → Sync and backup → Export backup** now
