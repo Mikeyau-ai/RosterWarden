@@ -1,8 +1,10 @@
 /**
- * The "Shifts for this day" sheet on an open roster: change one built day's
- * shifts - name, times, people needed, roles, a note - take a shift off that
- * day, or add one (a usual shift or a one-off). Like the Team tab it saves as
- * you go. Only that day's list changes unless "Same on every day" is tapped.
+ * The "Shifts for this day" sheet: change one day's shifts - name, times,
+ * people needed, roles, a note - take a shift off that day, or add one (a usual
+ * shift or a one-off). It works on a saved roster, or on the plan for a roster
+ * not built yet (see `rosterDaySource` and New Roster). Like the Team tab it
+ * saves as you go. Only that day's list changes unless "Same on every day" is
+ * tapped.
  */
 import { store } from '../store.js';
 import { el, fill, toast, confirmDialog, openSheet, TIME_STEP_SECONDS } from '../ui.js';
@@ -16,18 +18,37 @@ function wholeNumber(raw) {
 }
 
 /**
- * Open the sheet for `day` of the roster `rosterId`. `save(dayShifts,
- * assignments)` persists a change (and is where undo and notes live);
- * `onClose` runs when the sheet closes so the roster can redraw.
+ * The source for a saved roster's day sheet. `save(dayShifts, assignments)`
+ * persists a change (and is where undo and notes live).
  */
-export function openDayShifts(rosterId, day, save, onClose) {
-  /** The day's lists for every date, filling in any date an older roster lacks. */
-  const listsNow = () => copyDayShifts(store.roster(rosterId), store.shifts());
+export function rosterDaySource(rosterId, save) {
+  return {
+    dates: rosterDates(store.roster(rosterId)),
+    // Every date's list, filling in any date an older roster lacks.
+    getLists: () => copyDayShifts(store.roster(rosterId), store.shifts()),
+    setLists: save,
+    getAssignments: () => store.roster(rosterId).assignments,
+  };
+}
+
+/**
+ * Open the sheet for `day` of a source: `{ dates, getLists(), setLists(lists,
+ * assignments), getAssignments? }`. `getLists` gives the full `{ date:
+ * entries }` for `dates`; `setLists` saves it. Without `getAssignments` (a plan
+ * with nobody placed yet) removing a shift never asks. `onClose` runs when the
+ * sheet closes so the screen behind can redraw.
+ */
+export function openDayShifts(source, day, onClose) {
+  /** The day's lists for every date. */
+  const listsNow = () => source.getLists();
+
+  /** The places made so far, or undefined when the source has none. */
+  const assignmentsNow = () => source.getAssignments?.();
 
   /** Save the day's entries as `change(entries)` returns them, keeping other days as they are. */
-  const commit = (change, assignments = store.roster(rosterId).assignments) => {
+  const commit = (change, assignments = assignmentsNow()) => {
     const lists = listsNow();
-    save({ ...lists, [day]: change(lists[day]) }, assignments);
+    source.setLists({ ...lists, [day]: change(lists[day]) }, assignments);
   };
 
   /** The saved version of one entry of the day (inputs may hold older copies). */
@@ -141,7 +162,7 @@ export function openDayShifts(rosterId, day, save, onClose) {
         if (!latest) return;
         const lists = listsNow();
         let changed = 0;
-        for (const date of rosterDates(store.roster(rosterId))) {
+        for (const date of source.dates) {
           if (date === day || !lists[date].some((e) => e.id === latest.id)) continue;
           lists[date] = lists[date].map((e) => {
             if (e.id !== latest.id) return e;
@@ -155,7 +176,7 @@ export function openDayShifts(rosterId, day, save, onClose) {
           });
           changed++;
         }
-        if (changed) save(lists, store.roster(rosterId).assignments);
+        if (changed) source.setLists(lists, assignmentsNow());
         toast(changed ? `Changed on ${changed} more day${changed === 1 ? '' : 's'}` : 'No other day has this shift');
       },
     });
@@ -164,7 +185,7 @@ export function openDayShifts(rosterId, day, save, onClose) {
     const removeBtn = el('button', {
       type: 'button', className: 'btn btn-danger btn-sm', textContent: 'Remove from this day',
       onclick: async () => {
-        const assignments = store.roster(rosterId).assignments;
+        const assignments = assignmentsNow() || [];
         const here = assignments.filter((a) => a.date === day && a.shiftId === entry.id);
         if (here.length) {
           const ok = await confirmDialog(

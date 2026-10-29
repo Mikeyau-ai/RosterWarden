@@ -13,7 +13,7 @@ import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
 import { show } from '../app.js';
-import { openDayShifts } from './day-shifts.js';
+import { openDayShifts, rosterDaySource } from './day-shifts.js';
 import * as builderView from './roster.js';
 import * as teamView from './team.js';
 import * as sync from '../sync.js';
@@ -186,7 +186,8 @@ function draftRow(r) {
 function rollForward(roster) {
   const days = rosterDates(roster);
   if (days.length === 0) return;
-  builderView.startWith(rollOn(days));
+  // The roster is passed too, so its per-day shifts carry over to the new dates.
+  builderView.startWith(rollOn(days), roster);
   show('new');
 }
 
@@ -276,7 +277,7 @@ function renderOpen(roster, container) {
   };
 
   const cards = editing
-    ? editableDayCards(roster, people, shifts, change, (day) => openDayShifts(roster.id, day, changeDays, redraw))
+    ? editableDayCards(roster, people, shifts, change, (day) => openDayShifts(rosterDaySource(roster.id, changeDays), day, redraw))
     : dayCards(roster, people, shifts, change);
 
   // The everyday actions sit right under the title, so sharing or fixing a

@@ -17,7 +17,7 @@ function installStorage() {
 }
 
 const { store } = await import('../js/store.js');
-const { applySetup, templateShifts, skilledRoleNames, shiftSize, TEMPLATES } = await import('../js/setup.js');
+const { applySetup, templateShifts, templateRoles, addTemplateRoles, skilledRoleNames, shiftSize, TEMPLATES } = await import('../js/setup.js');
 
 /** A fresh, empty store. */
 function fresh() {
@@ -87,4 +87,20 @@ test('skilled roles skip "anyone" roles and repeats; size follows roles', () => 
   ];
   assert.deepEqual(skilledRoleNames(shifts), ['Keys']);
   assert.deepEqual(shifts.map(shiftSize), [3, 1, 3]);
+});
+
+test('catering has no usual shifts but its roles are created with the workplace', () => {
+  fresh();
+  assert.deepEqual(templateShifts('catering'), []);
+  assert.deepEqual(templateRoles('catering'), ['Chef', 'Waiter', 'Bar', 'Kitchen hand']);
+  assert.deepEqual(templateRoles('cafe'), []);
+  assert.deepEqual(skilledRoleNames([], templateRoles('catering')), ['Chef', 'Waiter', 'Bar', 'Kitchen hand']);
+
+  applySetup({ name: 'Events Co', kind: 'catering', shifts: templateShifts('catering'), people: [] });
+  assert.equal(store.shifts().length, 0);
+  assert.deepEqual(store.roles().map((r) => r.name), ['Chef', 'Waiter', 'Bar', 'Kitchen hand']);
+
+  // The welcome screen's route: roles added straight onto the current workplace, once each.
+  addTemplateRoles('catering');
+  assert.equal(store.roles().length, 4);
 });

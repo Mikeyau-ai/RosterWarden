@@ -9,7 +9,7 @@
  */
 import { el, fill, openSheet, closeSheet, confirmDialog, weekdayPicker, toast, DAY_LABELS, TIME_STEP_SECONDS } from '../ui.js';
 import { parsePeopleList } from '../people-import.js';
-import { TEMPLATES, templateShifts, skilledRoleNames, shiftSize, applySetup } from '../setup.js';
+import { TEMPLATES, templateShifts, templateRoles, skilledRoleNames, shiftSize, applySetup } from '../setup.js';
 import { refreshOrgs, show } from '../app.js';
 
 /** The steps in order. `optional` ones get a Skip button; `when` hides a step that has nothing to ask. */
@@ -19,7 +19,7 @@ const STEPS = [
   { id: 'shifts', title: 'Shifts' },
   { id: 'team', title: 'Your team', optional: true },
   { id: 'skills', title: 'Who can do what', optional: true,
-    when: (d) => d.people.length > 0 && skilledRoleNames(d.shifts).length > 0 },
+    when: (d) => d.people.length > 0 && skilledRoleNames(d.shifts, templateRoles(d.kind)).length > 0 },
   { id: 'done', title: 'All set' },
 ];
 
@@ -81,7 +81,8 @@ export function openWizard({ name = '', kind = 'cafe' } = {}) {
       if (id === 'workplace' && !draft.name.trim()) return 'Give your workplace a name first.';
       if (id === 'shifts') {
         const named = draft.shifts.filter((s) => s.name.trim());
-        if (named.length === 0) return 'Add at least one shift with a name.';
+        // Catering plans its shifts on each week's roster, so it may have none.
+        if (named.length === 0 && draft.kind !== 'catering') return 'Add at least one shift with a name.';
         if (named.some((s) => s.roles.length && s.roles.every((r) => !r.name.trim()))) {
           return 'Name each role, or remove the empty ones.';
         }
@@ -261,7 +262,7 @@ function shiftsStep(draft, edited, redraw) {
     return el('div', { className: 'wiz-shift' }, [
       el('div', { className: 'spread' }, [
         el('strong', { textContent: `Shift ${i + 1}` }),
-        draft.shifts.length > 1 ? el('button', {
+        draft.shifts.length > 1 || draft.kind === 'catering' ? el('button', {
           type: 'button', className: 'btn btn-sm btn-ghost', textContent: 'Remove',
           onclick: () => change(() => draft.shifts.splice(i, 1)),
         }) : null,
@@ -327,7 +328,7 @@ function teamStep(draft, redraw) {
 
 /** Step 5 (only with roles and people): tick who can do each role. */
 function skillsStep(draft) {
-  const roles = skilledRoleNames(draft.shifts);
+  const roles = skilledRoleNames(draft.shifts, templateRoles(draft.kind));
   const has = (person, role) => person.roleNames.some((n) => n.toLowerCase() === role.toLowerCase());
 
   const head = el('tr', {}, [el('th'), ...roles.map((r) => el('th', { className: 'skill-head', textContent: r }))]);
@@ -361,7 +362,9 @@ function doneStep(draft) {
     el('ul', { className: 'wiz-summary' }, [
       el('li', {}, [el('strong', { textContent: draft.name.trim() })]),
       el('li', { textContent: `Open: ${daysText(draft.openDays)}${hours}` }),
-      el('li', { textContent: `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'}: ${shifts.map((s) => `${s.name.trim()} (${shiftSize(s)})`).join(', ')}` }),
+      el('li', { textContent: shifts.length
+        ? `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'}: ${shifts.map((s) => `${s.name.trim()} (${shiftSize(s)})`).join(', ')}`
+        : 'No usual shifts — plan each week’s shifts when you build' }),
       el('li', { textContent: people ? `${people} ${people === 1 ? 'person' : 'people'} on the team` : 'No people yet — add them on the Team tab' }),
     ]),
   ];

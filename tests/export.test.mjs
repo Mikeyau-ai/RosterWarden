@@ -162,3 +162,29 @@ test('a message for one person lists only their own dates', () => {
   assert.ok(!text.includes('Sarah'));
   assert.equal(messageFor(roster, { id: 99, name: 'Nobody' }, shifts), null);
 });
+
+test('toCSV writes a row per date and shift, with a Note, when the days differ', () => {
+  const lunch = { id: 10, name: 'Lunch', start: '11:00', end: '15:00', headcount: 2 };
+  const gala = { id: 900, name: 'Gala', start: '18:00', end: '22:00', headcount: 1, note: 'Black tie, formal' };
+  const mixed = {
+    id: 1, name: 'Mixed', days: ['2026-10-11', '2026-10-12'], notes: [],
+    dayShifts: { '2026-10-11': [lunch], '2026-10-12': [lunch, gala] },
+    assignments: [
+      { date: '2026-10-11', shiftId: 10, personId: 1 },
+      { date: '2026-10-11', shiftId: 10, personId: 2 },
+      { date: '2026-10-12', shiftId: 900, personId: 3 },
+    ],
+  };
+  const lines = toCSV(mixed, people, []).replace('\uFEFF', '').trim().split('\r\n');
+  assert.deepEqual(lines, [
+    'Date,Day,Shift,Start,End,People,Note',
+    '2026-10-11,Sun,Lunch,11:00,15:00,"Sarah, Tom",',
+    '2026-10-12,Mon,Lunch,11:00,15:00,,',
+    '2026-10-12,Mon,Gala,18:00,22:00,Rachel,"Black tie, formal"',
+  ]);
+});
+
+test('toCSV keeps the person-per-row layout when every day runs the same shifts', () => {
+  const same = { ...roster, dayShifts: { '2026-10-11': shifts, '2026-10-18': shifts } };
+  assert.equal(toCSV(same, people, shifts).split('\r\n')[0], '\uFEFFDate,Day,Shift,Start,End,Person');
+});

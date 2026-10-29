@@ -31,6 +31,12 @@ export const TEMPLATES = {
       ].map(([name, count]) => ({ name, count, anyone: false })),
     }],
   },
+  catering: {
+    label: 'Catering or events',
+    hint: 'No usual shifts; plan each week, with roles ready',
+    shifts: [],
+    roleNames: ['Chef', 'Waiter', 'Bar', 'Kitchen hand'],
+  },
   blank: {
     label: 'A blank start',
     hint: 'One empty shift to fill in',
@@ -44,6 +50,11 @@ export function templateShifts(kind) {
   return template.shifts.map((s) => ({ ...s, roles: s.roles.map((r) => ({ ...r })) }));
 }
 
+/** The role names a template sets up even without shifts to hold them. */
+export function templateRoles(kind) {
+  return [...(TEMPLATES[kind] || TEMPLATES.cafe).roleNames || []];
+}
+
 /** The people a shift needs: its roles' total when it has roles, else its headcount. */
 export function shiftSize(shift) {
   return shift.roles?.length
@@ -54,9 +65,11 @@ export function shiftSize(shift) {
 /**
  * The roles across all draft shifts that need people ticking for them, by
  * name, once each (the same name on two shifts is one role, as in the store).
+ * `extra` are role names to list first (those a template brings without shifts).
  */
-export function skilledRoleNames(shifts) {
+export function skilledRoleNames(shifts, extra = []) {
   const seen = new Map();
+  for (const name of extra) seen.set(name.toLowerCase(), name);
   for (const shift of shifts) {
     for (const role of shift.roles || []) {
       const name = role.name.trim();
@@ -64,6 +77,11 @@ export function skilledRoleNames(shifts) {
     }
   }
   return [...seen.values()];
+}
+
+/** Add the roles a template comes with (a no-op for one without) to the current organisation. */
+export function addTemplateRoles(kind) {
+  for (const name of templateRoles(kind)) store.addRole(name);
 }
 
 /**
@@ -103,6 +121,7 @@ export function applySetup(draft) {
   });
 
   // Shifts first, so their roles exist before people are ticked for them.
+  addTemplateRoles(draft.kind);
   addShifts(draft.shifts || []);
 
   // People, with their role ticks matched to the roles just made, by name.

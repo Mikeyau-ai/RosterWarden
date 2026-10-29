@@ -83,6 +83,21 @@ export function rollOn(days) {
   return days.map((d) => fromDays(toDays(d) + step));
 }
 
+/** The saved roster (not a draft) with the latest last date, or undefined when there is none. */
+export function latestRoster(rosters) {
+  let latest;
+  let latestEnd = '';
+  for (const r of rosters) {
+    if (r.draft) continue;
+    const days = rosterDates(r);
+    if (days.length && days[days.length - 1] > latestEnd) {
+      latest = r;
+      latestEnd = days[days.length - 1];
+    }
+  }
+  return latest;
+}
+
 /**
  * The dates the next roster most likely needs: the latest saved roster (by its
  * last date) rolled on until it starts no earlier than `today`, so a roster
@@ -91,12 +106,8 @@ export function rollOn(days) {
  * on. [] when there is none.
  */
 export function followOnDates(rosters, today = todayISO(), openDays = [0, 1, 2, 3, 4, 5, 6]) {
-  let latest = [];
-  for (const r of rosters) {
-    if (r.draft) continue;
-    const days = rosterDates(r);
-    if (days.length && (!latest.length || days[days.length - 1] > latest[latest.length - 1])) latest = days;
-  }
+  const source = latestRoster(rosters);
+  const latest = source ? rosterDates(source) : [];
   if (!latest.length) return [];
   let next = rollOn(latest);
   while (next[0] < today) next = rollOn(next);
@@ -273,6 +284,30 @@ export function copyDayShifts(roster, usual) {
     out[date] = usual.map(({ id, name, start, end, headcount, roles }) => ({
       id, name, start, end, headcount, roles: (roles || []).map((r) => ({ ...r })),
     }));
+  }
+  return out;
+}
+
+/**
+ * The day lists to carry from `sourceRoster` onto `newDates`: for each new
+ * date, a deep copy of the source's list for the nearest earlier date a whole
+ * number of weeks before it (same weekday) that the source has a list for.
+ * Only dates whose carried list differs from the usual shifts of that date
+ * (`usual`, the Team tab's shifts) are returned, as `{ date: entries }`; a
+ * roster without `dayShifts` carries nothing.
+ */
+export function carryDayShifts(sourceRoster, newDates, usual) {
+  const out = {};
+  const lists = sourceRoster?.dayShifts;
+  if (!lists) return out;
+  const have = Object.keys(lists).sort();
+  const usualLists = usualDayShifts(usual, newDates);
+  for (const date of newDates) {
+    // Nearest earlier source date on the same weekday (a multiple of 7 days back).
+    const from = have.filter((d) => d < date && (toDays(date) - toDays(d)) % 7 === 0).pop();
+    if (from === undefined) continue;
+    const copy = JSON.parse(JSON.stringify(lists[from]));
+    if (JSON.stringify(copy) !== JSON.stringify(usualLists[date])) out[date] = copy;
   }
   return out;
 }
@@ -572,6 +607,16 @@ export function counts(roster) {
 }
 
 /**
+ * True when a roster has its own day lists and its rostered days do not all
+ * run the same shift ids in the same order, so a column per shift won't fit.
+ */
+export function daysDiffer(roster, usual) {
+  if (!roster?.dayShifts) return false;
+  const keys = rosterDates(roster).map((d) => shiftsOn(roster, d, usual).map((s) => s.id).join(','));
+  return keys.some((k) => k !== keys[0]);
+}
+
+/**
  * Render a roster as an aligned monospace table.
  *
  * Used for the Copy and Export actions - it pastes cleanly into a message or a
@@ -593,13 +638,24 @@ export function formatTable(roster, people, shifts, roles = []) {
   }
 
   const days = [...new Set(roster.assignments.map((a) => a.date))].sort();
-  const columns = rosterShiftList(roster, shifts);
-  const headers = ['Date', 'Day', ...columns.map((s) => shiftLabel(s))];
-  const rows = days.map((d) => [
-    formatDate(d, { withWeekday: false }),
-    weekdayName(d),
-    ...columns.map((s) => (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-'),
-  ]);
+  let headers;
+  let rows;
+  if (daysDiffer(roster, shifts)) {
+    // The days run different shifts, so one row per date and shift instead of a column each.
+    headers = ['Date', 'Day', 'Shift', 'Start', 'End', 'People'];
+    rows = days.flatMap((d) => shiftsOn(roster, d, shifts).map((s) => [
+      formatDate(d, { withWeekday: false }), weekdayName(d), s.name, s.start || '', s.end || '',
+      (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-',
+    ]));
+  } else {
+    const columns = rosterShiftList(roster, shifts);
+    headers = ['Date', 'Day', ...columns.map((s) => shiftLabel(s))];
+    rows = days.map((d) => [
+      formatDate(d, { withWeekday: false }),
+      weekdayName(d),
+      ...columns.map((s) => (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-'),
+    ]);
+  }
 
   // Column widths are the widest cell in each column, header included.
   const widths = headers.map((h, i) =>
