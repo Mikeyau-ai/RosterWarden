@@ -59,7 +59,10 @@ function nextDay(iso) {
 /** Give a person a link and put their name and shifts on it. */
 export async function createLink(personId) {
   store.updatePerson(personId, {
-    staffLink: { key: link.newLinkKey(), sentAt: null, sentVia: null, lastFromStaff: null, note: '', outHash: null },
+    staffLink: {
+      key: link.newLinkKey(), sentAt: null, sentVia: null, lastFromStaff: null, note: '', outHash: null,
+      profileSeen: null, profileSuggestion: null,
+    },
   });
   try { await publish([personId]); } catch { /* published on the next sync instead */ }
 }
@@ -117,12 +120,63 @@ export async function collect(ids = null) {
     if (p.staffLink.lastFromStaff && box.updatedAt <= p.staffLink.lastFromStaff) continue;
     takeSwaps(p, box.value);
     takeReplies(p, box.value);
+    takeProfile(p, box.value);
     const dates = cleanDates(box.value?.awayDates);
     store.replaceSourcedBlackouts(p.id, SOURCE, dates.map((d) => ({ start: d, end: d, reason: 'from their link' })));
     patchLink(p.id, { lastFromStaff: box.updatedAt, note: String(box.value?.note || '').slice(0, NOTE_MAX) });
     changed.push(store.data.people.find((x) => x.id === p.id));
   }
   return changed;
+}
+
+/** Longest name, email and mobile a staff member can send, in characters. */
+const NAME_MAX = 80;
+const EMAIL_MAX = 120;
+const MOBILE_MAX = 25;
+
+/** Their details as sent, tidied: blank where missing or malformed (an email must look like one). */
+function cleanProfile(value) {
+  const text = (v) => String(v ?? '').replace(/\s+/g, ' ').trim();
+  const email = text(value?.email).slice(0, EMAIL_MAX);
+  return {
+    name: text(value?.name).slice(0, NAME_MAX),
+    email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : '',
+    mobile: text(value?.mobile).replace(/[^0-9+()\- ]/g, '').trim().slice(0, MOBILE_MAX),
+  };
+}
+
+/**
+ * Take in the name, email and mobile a person sent. Like everything a page
+ * sends it is their whole current state, so it is only acted on when it differs
+ * from what they sent last (the owner may have changed a detail since, and a
+ * repeat send must not undo that). Email and mobile apply straight away; a new
+ * name waits as `staffLink.profileSuggestion` for the owner to accept. Blank
+ * fields change nothing, and a person from Planning Center keeps the name and
+ * email Planning Center gave them.
+ */
+function takeProfile(person, value) {
+  if (!value?.profile || typeof value.profile !== 'object') return;
+  const sent = cleanProfile(value.profile);
+  const seen = JSON.stringify(sent);
+  if (seen === person.staffLink.profileSeen) return;
+
+  const patch = {};
+  if (sent.mobile && sent.mobile !== person.phone) patch.phone = sent.mobile;
+  if (!person.pcoId && sent.email && sent.email !== person.email) patch.email = sent.email;
+  const suggest = !person.pcoId && sent.name && sent.name !== person.name ? { name: sent.name } : null;
+
+  if (Object.keys(patch).length) store.updatePerson(person.id, patch);
+  patchLink(person.id, { profileSeen: seen, profileSuggestion: suggest });
+  if (Object.keys(patch).length || suggest) swapNews.push(`${person.name.split(' ')[0]} updated their details`);
+}
+
+/** Accept (or dismiss) the new name a person suggested from their link. */
+export function resolveNameSuggestion(personId, accept) {
+  const person = store.data.people.find((p) => p.id === personId);
+  const name = person?.staffLink?.profileSuggestion?.name;
+  if (!name) return;
+  if (accept) store.updatePerson(personId, { name });
+  patchLink(personId, { profileSuggestion: null });
 }
 
 /** A short fingerprint of some text (FNV-1a), to tell whether a link page needs rewriting. */
@@ -179,7 +233,9 @@ export async function publish(ids = null) {
   for (const p of linked(ids)) {
     const org = store.data.orgs.find((o) => o.id === p.orgId);
     const content = {
-      name: p.name, org: org?.name || '', awayDates: staffDates(p), shifts: upcomingShifts(p), swaps: swapPage(p),
+      name: p.name, org: org?.name || '', pco: Boolean(p.pcoId),
+      profile: { name: p.name, email: p.email || '', mobile: p.phone || '' },
+      awayDates: staffDates(p), shifts: upcomingShifts(p), swaps: swapPage(p),
     };
     const fingerprint = shortHash(JSON.stringify(content));
     if (fingerprint === p.staffLink.outHash) continue;

@@ -256,7 +256,23 @@ export async function render(container, key) {
     swapAnswers: (mine?.value?.swapAnswers || []).filter((a) => waiting.has(a.id)),
     // Their answers to shifts still on their page; ones for shifts gone are dropped.
     shiftReplies: (mine?.value?.shiftReplies || []).filter((r) => (info.shifts || []).some((s) => s.ref === r.ref)),
+    // Their details: what they last sent, else what the owner has for them.
+    profile: mine?.value?.profile || info.profile || { name: info.name || '', email: '', mobile: '' },
   };
+
+  // The details card. Planning Center people have their name and email from there.
+  const field = (label, key, attrs = {}) => {
+    const input = el('input', { type: 'text', value: sent.profile[key] || '', ...attrs });
+    return { input, node: el('div', {}, [el('label', { className: 'label', textContent: label }), input]) };
+  };
+  const nameField = field('Name', 'name', { maxLength: 80, autocomplete: 'name', disabled: Boolean(info.pco) });
+  const emailField = field('Email', 'email', { type: 'email', maxLength: 120, autocomplete: 'email', disabled: Boolean(info.pco) });
+  const mobileField = field('Mobile', 'mobile', { type: 'tel', maxLength: 25, autocomplete: 'tel' });
+  const detailsCard = el('div', { className: 'card' }, [
+    el('label', { className: 'label', textContent: 'Your details' }),
+    nameField.node, emailField.node, mobileField.node,
+    info.pco ? el('div', { className: 'faint', textContent: 'Your name and email come from Planning Center, so change them there.' }) : null,
+  ]);
 
   /** Write everything in `sent` to their mailbox. Throws a readable error. */
   const send = async () => {
@@ -274,6 +290,9 @@ export async function render(container, key) {
       try {
         sent.awayDates = [...away].filter((d) => d >= today).sort();
         sent.note = note.value.trim().slice(0, 500);
+        sent.profile = {
+          name: nameField.input.value.trim(), email: emailField.input.value.trim(), mobile: mobileField.input.value.trim(),
+        };
         await send();
         status.textContent = `Saved. ${info.org || 'They'} will see it next time they open RosterWarden.`;
       } catch (e) {
@@ -324,6 +343,7 @@ export async function render(container, key) {
       cal.node,
       count,
     ]),
+    detailsCard,
     el('div', { className: 'card' }, [el('label', { className: 'label', textContent: 'Note' }), note]),
     save,
     status,

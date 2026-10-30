@@ -148,6 +148,15 @@ same codes as Planning Center replies, so the roster shows ✓ or ✕ by their
 name and a "can't" appears under **declined** with **Replace**. An answer is
 for that person on that place, so it drops if the place goes to someone else.
 
+Their page also has a **Your details** card (name, email, mobile), sent with
+Save. Email and mobile replace yours straight away (a malformed email is
+ignored, and a blank field changes nothing); a new name waits on their person
+page as a suggestion with **Accept** and **Dismiss**, since the name is on every
+roster. Only a change from what they sent last is acted on, so a repeat send
+never undoes something you edited since. People from Planning Center keep the
+name and email Planning Center gave them (the card says so); their mobile still
+updates.
+
 Your app picks up what they sent when it opens and whenever you come back to it
 (or straight away with **Check now**). Their dates become away dates marked
 "from their link", replacing what they sent before; away dates you entered are

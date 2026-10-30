@@ -123,3 +123,82 @@ test('a new away date that clashes with a saved roster is found', async () => {
   const changed = await staff.syncStaff();
   assert.deepEqual(staff.clashes(changed).map((c) => [c.date, c.roster]), [['2099-11-08', 'Nov']]);
 });
+
+/** What the staff member's page does when they save their details too. */
+async function staffSendsProfile(key, profile) {
+  const { inId, cryptoKey } = await link.boxesFor(key);
+  await new Promise((r) => setTimeout(r, 5));
+  return link.writeBox(inId, cryptoKey, { awayDates: [], note: '', profile });
+}
+
+test('their email and mobile apply straight away; a new name waits as a suggestion', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const key = store.people()[0].staffLink.key;
+  await staffSendsProfile(key, { name: 'Samuel Jones', email: 'sam@example.com', mobile: '0400 123 456' });
+  await staff.syncStaff();
+  const p = store.people()[0];
+  assert.equal(p.email, 'sam@example.com');
+  assert.equal(p.phone, '0400 123 456');
+  assert.equal(p.name, 'Sam Jones', 'the name is not changed yet');
+  assert.deepEqual(p.staffLink.profileSuggestion, { name: 'Samuel Jones' });
+  assert.deepEqual(staff.takeSwapNews(), ['Sam updated their details']);
+});
+
+test('accepting a suggested name changes it; dismissing keeps it and does not come back', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const key = store.people()[0].staffLink.key;
+  await staffSendsProfile(key, { name: 'Samuel Jones', email: '', mobile: '' });
+  await staff.syncStaff();
+  staff.resolveNameSuggestion(sam.id, false);
+  assert.equal(store.people()[0].name, 'Sam Jones');
+  assert.equal(store.people()[0].staffLink.profileSuggestion, null);
+  await staffSendsProfile(key, { name: 'Samuel Jones', email: '', mobile: '' });   // same again
+  await staff.syncStaff();
+  assert.equal(store.people()[0].staffLink.profileSuggestion, null, 'a repeat send is ignored');
+
+  await staffSendsProfile(key, { name: 'Sammy Jones', email: '', mobile: '' });
+  await staff.syncStaff();
+  staff.resolveNameSuggestion(sam.id, true);
+  assert.equal(store.people()[0].name, 'Sammy Jones');
+});
+
+test('a badly formed email is ignored, and a repeat send does not undo the owner\'s edit', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const key = store.people()[0].staffLink.key;
+  await staffSendsProfile(key, { name: 'Sam Jones', email: 'not-an-email', mobile: 'call me <b>' });
+  await staff.syncStaff();
+  assert.equal(store.people()[0].email, '');
+  assert.equal(store.people()[0].phone, '');
+
+  await staffSendsProfile(key, { name: 'Sam Jones', email: 'sam@example.com', mobile: '0400 111 222' });
+  await staff.syncStaff();
+  store.updatePerson(sam.id, { email: 'new@example.com' });   // the owner changes it later
+  await staffSendsProfile(key, { name: 'Sam Jones', email: 'sam@example.com', mobile: '0400 111 222' });
+  await staff.syncStaff();
+  assert.equal(store.people()[0].email, 'new@example.com');
+});
+
+test('a Planning Center person keeps their name and email, but their mobile still updates', async () => {
+  const sam = setUp();
+  store.updatePerson(sam.id, { pcoId: 'pc1', email: 'pc@example.com' });
+  await staff.createLink(sam.id);
+  await staffSendsProfile(store.people()[0].staffLink.key, { name: 'Samuel', email: 'other@example.com', mobile: '0400 999 888' });
+  await staff.syncStaff();
+  const p = store.people()[0];
+  assert.equal(p.email, 'pc@example.com');
+  assert.equal(p.staffLink.profileSuggestion, null);
+  assert.equal(p.phone, '0400 999 888');
+});
+
+test('their current details are published on their page', async () => {
+  const sam = setUp();
+  store.updatePerson(sam.id, { email: 'sam@example.com', phone: '0400 000 000' });
+  await staff.createLink(sam.id);
+  const { outId, cryptoKey } = await link.boxesFor(store.people()[0].staffLink.key);
+  const page = await link.readBox(outId, cryptoKey);
+  assert.deepEqual(page.value.profile, { name: 'Sam Jones', email: 'sam@example.com', mobile: '0400 000 000' });
+  assert.equal(page.value.pco, false);
+});

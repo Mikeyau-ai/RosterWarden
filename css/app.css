@@ -133,7 +133,7 @@ p  { margin: 0 0 .75rem; }
 
 /* ── controls ────────────────────────────────────────────────────────── */
 input[type="text"], input[type="date"], input[type="number"],
-input[type="password"], input[type="time"], select, textarea {
+input[type="password"], input[type="time"], input[type="email"], input[type="tel"], select, textarea {
   width: 100%; min-width: 0; min-height: var(--tap);
   padding: .55rem .7rem;
   background: var(--surface-2); color: var(--ink);

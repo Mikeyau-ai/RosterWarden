@@ -641,6 +641,13 @@ function renderStaffLinkCard(person, container) {
     ]),
     el('div', { className: 'faint', textContent: heard }),
     sl.note ? el('div', { className: 'muted', textContent: `"${sl.note}"` }) : null,
+    sl.profileSuggestion ? el('div', { className: 'spread' }, [
+      el('div', { textContent: `${first} would like their name to be "${sl.profileSuggestion.name}"` }),
+      el('div', { className: 'row-tight' }, [
+        el('button', { className: 'btn btn-sm btn-primary', textContent: 'Accept', onclick: () => { staff.resolveNameSuggestion(person.id, true); redraw(); } }),
+        el('button', { className: 'btn btn-sm', textContent: 'Dismiss', onclick: () => { staff.resolveNameSuggestion(person.id, false); redraw(); } }),
+      ]),
+    ]) : null,
     upcoming.length ? el('div', { className: 'spread' }, [
       el('div', { textContent: `${upcoming.length} upcoming date${upcoming.length === 1 ? '' : 's'} from their link` }),
       el('button', {
