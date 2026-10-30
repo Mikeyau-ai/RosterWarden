@@ -343,6 +343,10 @@ function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') collectStaff();
   });
+  // And every couple of minutes while it stays open on screen, so a reply shows up without leaving the app.
+  setInterval(() => {
+    if (document.visibilityState === 'visible') collectStaff();
+  }, STAFF_CHECK_EVERY);
 
   show(location.hash.slice(1) || 'roster');
   registerWorker();
@@ -393,6 +397,9 @@ let staffPublishTimer = null;
 
 // When staff links were last checked, so flicking between apps doesn't hammer the server.
 let staffCheckedAt = 0;
+
+// How often to look for staff replies while the app is open on screen.
+const STAFF_CHECK_EVERY = 2 * 60 * 1000;
 
 /**
  * Pick up dates and shift swaps staff have sent through their links, apply

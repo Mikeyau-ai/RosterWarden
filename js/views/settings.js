@@ -687,11 +687,23 @@ function renderAboutCard() {
     onclick: async () => {
       const ok = await confirmDialog(
         'Delete all data',
-        'This permanently deletes every organisation, person, shift and saved roster on this device. ' +
-          'There is no undo. Make sure you have a backup if you might want any of this again.',
+        'This permanently deletes every organisation, person, shift and saved roster on this device, and switches off '
+          + 'every staff link you have sent. There is no undo. Make sure you have a backup if you might want any of this again.',
         'Delete everything'
       );
       if (!ok) return;
+      // Switch the staff links off on the server while their keys are still here; offline, say what that means.
+      try {
+        await staff.retireAllLinks();
+      } catch {
+        const anyway = await confirmDialog(
+          'Staff links still on',
+          'The server couldn\'t be reached, so the staff links you sent will keep showing their old shifts. '
+            + 'Delete everything anyway, or wait until you\'re online?',
+          'Delete anyway'
+        );
+        if (!anyway) return;
+      }
       store.reset();
       // A staff link this phone opened is forgotten too, so the welcome screen stops offering "Open my staff page".
       try { localStorage.removeItem(STAFF_LINK_KEY); } catch { /* private mode: nothing kept */ }

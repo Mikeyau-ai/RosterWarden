@@ -156,6 +156,20 @@ export async function replaceLink(personId) {
   try { await publish([personId]); } catch { /* published on the next sync instead */ }
 }
 
+/**
+ * Cancel every staff link on the server, before Delete all data forgets their
+ * keys. Otherwise the old pages stay up showing old shifts and quietly take
+ * answers nobody will ever read; cancelled, they say the link was replaced.
+ * Throws when the server can't be reached.
+ */
+export async function retireAllLinks() {
+  for (const p of linked()) {
+    const { inId, outId } = await link.boxesFor(p.staffLink.key);
+    await link.replaceBox(inId);
+    await link.replaceBox(outId);
+  }
+}
+
 /** Take away every date a person entered through their link. */
 export function clearStaffDates(personId) {
   store.replaceSourcedBlackouts(personId, SOURCE, []);
