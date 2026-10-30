@@ -193,6 +193,18 @@ export function show(name, options = {}) {
   slideIn(direction);
 }
 
+/**
+ * Show who is signed in at the right of the app bar, or nothing while signed out. Just the first name (else
+ * the email before the @) so a phone still has room for the workplace; the full name and email are its tooltip.
+ */
+export function refreshAccount() {
+  const chip = document.getElementById('account-chip');
+  const who = account.current();
+  chip.hidden = !who;
+  chip.textContent = who ? (who.name || '').trim().split(/\s+/)[0] || who.email.split('@')[0] : '';
+  chip.title = who ? `Your account: ${[who.name, who.email].filter(Boolean).join(', ')}` : '';
+}
+
 /** Rebuild the organisation dropdown from the store. */
 export function refreshOrgs() {
   const select = document.getElementById('org-select');
@@ -301,9 +313,10 @@ function init() {
   // already here rather than replacing it, so switching on never costs anyone
   // the rosters they already had.
   sync.autoEnable();
-  account.keepFresh();
+  // keepFresh signs this device out if the account has gone, so the bar is redrawn once it answers.
+  account.keepFresh().then(refreshAccount);
   // Back from signing in on the site: finish it, then show the rosters that came with the account.
-  resumeSignIn().then((signedIn) => { if (signedIn) render(); });
+  resumeSignIn().then((signedIn) => { if (signedIn) { refreshAccount(); render(); } });
 
   // Every save marks the device as having moved on, and queues an upload.
   store.onSaved((data) => {
@@ -314,6 +327,9 @@ function init() {
     staffPublishTimer = setTimeout(() => staff.publish().catch(() => {}), 5000);
   });
   refreshOrgs();
+  refreshAccount();
+  // The name in the bar opens the account card (Settings → Data), where Sign out is.
+  document.getElementById('account-chip').addEventListener('click', () => show('settings', { section: 'data' }));
 
   for (const tab of document.querySelectorAll('.tab')) {
     tab.addEventListener('click', () => show(tab.dataset.view));
