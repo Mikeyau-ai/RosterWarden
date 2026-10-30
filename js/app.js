@@ -113,8 +113,12 @@ function welcome() {
     // A replacement phone lands here first: offer the way back to its rosters.
     ...(sync.isConfigured() ? [
       el('div', { className: 'or-line', textContent: 'or' }),
+      // Signed in already (an account with no rosters yet): say so, rather than offering Sign in again.
+      ...(account.current() ? [
+        el('div', { className: 'muted', textContent: `Signed in as ${account.current().email}. The workplace you set up here is kept with your account.` }),
+      ] : []),
       // An account brings the rosters back with no code; the code stays as the way for anyone without one.
-      ...(account.isConfigured() ? [
+      ...(account.isConfigured() && !account.current() ? [
         el('div', { className: 'muted', textContent: 'Already use RosterWarden, or want your rosters kept safe?' }),
         signInButtons(joinErr, () => show('roster')),
       ] : []),
