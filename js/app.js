@@ -69,6 +69,7 @@ export function render() {
 
 /** First-run screen: name the workplace right here, no pop-up. */
 function welcome() {
+  const staffKey = rememberedLink();
   const nameInput = el('input', {
     type: 'text', placeholder: 'e.g. Church Cafe', 'aria-label': 'Workplace name',
   });
@@ -87,6 +88,10 @@ function welcome() {
   const joinErr = el('div', { className: 'err' });
 
   return el('form', { className: 'card', onsubmit: create }, [
+    staffKey ? el('div', { className: 'notice' }, [
+      el('strong', { textContent: 'Looking for your shifts?' }),
+      el('a', { className: 'btn btn-sm', textContent: 'Open my staff page', href: `${location.pathname}#staff=${staffKey}`, style: 'margin-top:.5rem' }),
+    ]) : null,
     el('h2', { textContent: 'Welcome to RosterWarden' }),
     el('p', { className: 'muted' }, [
       'Fair rosters in seconds: add your people, say which days each can work, '
