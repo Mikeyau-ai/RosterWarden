@@ -27,8 +27,8 @@ async function approve(signUp) {
       el('p', {
         className: 'muted',
         textContent: signUp
-          ? 'Make an account on Sixth Day Studios (Google, Microsoft or an email and password), confirm your email, then sign in and enter this code to connect it to the app.'
-          : 'Sign in on Sixth Day Studios (Google, Microsoft or email and password), then enter this code to connect it to the app.',
+          ? 'Make an account on Sixth Day Studios (Google, Microsoft or an email and password), confirm your email, then sign in to connect it to the app. This is the code to check:'
+          : 'Sign in on Sixth Day Studios (Google, Microsoft or email and password), then approve this code to connect it to the app.',
       }),
       el('div', { className: 'sync-code mono', textContent: started.user_code }),
       el('a', {
