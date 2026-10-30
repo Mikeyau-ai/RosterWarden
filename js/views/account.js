@@ -6,46 +6,9 @@
  */
 import { store } from '../store.js';
 import { el, toast, dialog, confirmDialog } from '../ui.js';
-import { ACCOUNT_URL } from '../config.js';
 import { refreshOrgs, show } from '../app.js';
 import * as account from '../account.js';
 import * as sync from '../sync.js';
-
-/**
- * Show the sign-in code and wait for it to be approved on the site.
- * `signUp` points the first link at the sign-up page instead. Resolves true
- * once signed in, false if cancelled.
- */
-async function approve(signUp) {
-  const started = await account.start();
-  let cancelled = false;
-  const shown = dialog((close) => {
-    account.waitForApproval(started, () => cancelled)
-      .then((who) => close(Boolean(who)), (e) => { toast(e.message); close(false); });
-    return [
-      el('h2', { textContent: signUp ? 'Create your account' : 'Sign in' }),
-      el('p', {
-        className: 'muted',
-        textContent: signUp
-          ? 'Make an account on Sixth Day Studios (Google, Microsoft or an email and password), confirm your email, then sign in and enter this code to connect it to the app.'
-          : 'Sign in on Sixth Day Studios (Google, Microsoft or email and password), then enter this code to connect it to the app.',
-      }),
-      el('div', { className: 'sync-code mono', textContent: started.user_code }),
-      el('a', {
-        className: 'btn btn-primary btn-block', target: '_blank', rel: 'noopener',
-        textContent: signUp ? 'Open the sign-up page' : 'Open the sign-in page',
-        href: signUp ? `${ACCOUNT_URL}/register` : `${started.url}?code=${encodeURIComponent(started.user_code)}`,
-      }),
-      el('div', { className: 'faint', textContent: `Waiting for you to finish. The code works for ${Math.round(started.expires_in / 60)} minutes.` }),
-      el('div', { className: 'modal-actions' }, [
-        el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(false) }),
-      ]),
-    ];
-  });
-  const ok = await shown;
-  cancelled = true;
-  return ok;
-}
 
 /** Take the account's sync code on this device, bringing in its rosters if it has any. */
 async function adopt(code) {
@@ -89,21 +52,34 @@ async function matchAccount() {
 }
 
 /**
- * Sign in (or sign up) and sort out the sync code. Problems are written into
- * `err`; `done` runs afterwards so a screen can redraw. Resolves true if signed in.
+ * Sign in (or sign up): send the person to the site, which brings them back
+ * here signed in (see `resumeSignIn`). Problems are written into `err`.
  */
 export async function signIn({ signUp = false } = {}, err, done = () => {}) {
   err.textContent = '';
   try {
-    if (!(await approve(signUp))) return false;
+    location.href = await account.begin(signUp);
+  } catch (e) {
+    err.textContent = e.message;
+    done();
+  }
+}
+
+/**
+ * Called when the app opens: if the person went off to sign in and has come
+ * back, finish it, then sort out the sync code. Resolves true if it signed in.
+ */
+export async function resumeSignIn() {
+  if (!account.pending()) return false;
+  toast('Finishing signing in…');
+  try {
+    if (!(await account.resume())) return false;
     await matchAccount();
     toast(`Signed in as ${account.current().email}`);
     return true;
   } catch (e) {
-    err.textContent = e.message;
+    toast(e.message);
     return false;
-  } finally {
-    done();
   }
 }
 
