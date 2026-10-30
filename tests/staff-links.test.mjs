@@ -193,14 +193,37 @@ test('a Planning Center person keeps their name and email, but their mobile stil
   assert.equal(p.phone, '0400 999 888');
 });
 
-test('their current details are published on their page', async () => {
+test('their page gets only hints of their email and mobile, never the details themselves', async () => {
   const sam = setUp();
-  store.updatePerson(sam.id, { email: 'sam@example.com', phone: '0400 000 000' });
+  store.updatePerson(sam.id, { email: 'sam@example.com', phone: '0400 000 042' });
   await staff.createLink(sam.id);
   const { outId, cryptoKey } = await link.boxesFor(store.people()[0].staffLink.key);
   const page = await link.readBox(outId, cryptoKey);
-  assert.deepEqual(page.value.profile, { name: 'Sam Jones', email: 'sam@example.com', mobile: '0400 000 000' });
+  assert.deepEqual(page.value.profile, { name: 'Sam Jones', emailHint: 's…@example.com', mobileHint: 'Ends in 42' });
+  const whole = JSON.stringify(page.value);
+  assert.ok(!whole.includes('sam@example.com') && !whole.includes('0400'), 'a forwarded link shows neither');
   assert.equal(page.value.pco, false);
+});
+
+test('their page is told how far the owner has read, so it can stop resending details', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const key = store.people()[0].staffLink.key;
+  const { outId, cryptoKey } = await link.boxesFor(key);
+  assert.equal((await link.readBox(outId, cryptoKey)).value.seenUpTo, null);
+  const sentAt = await staffSendsProfile(key, { name: 'Sam Jones', email: '', mobile: '0411 111 111' });
+  await staff.syncStaff();
+  assert.equal(store.people()[0].phone, '0411 111 111');
+  assert.equal((await link.readBox(outId, cryptoKey)).value.seenUpTo, sentAt);
+});
+
+test('masks show a little of an email or mobile, and nothing for a missing one', () => {
+  assert.equal(link.maskEmail('mikey@live.com.au'), 'm…@live.com.au');
+  assert.equal(link.maskEmail('not an email'), '');
+  assert.equal(link.maskEmail(''), '');
+  assert.equal(link.maskMobile('+61 400 123 456'), 'Ends in 56');
+  assert.equal(link.maskMobile('7'), '');
+  assert.equal(link.maskMobile(null), '');
 });
 
 const named = (n) => store.people().find((p) => p.name === n);

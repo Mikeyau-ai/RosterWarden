@@ -42,6 +42,21 @@ export function keyFromHash(hash) {
   return m && KEY_PATTERN.test(m[1]) ? m[1] : null;
 }
 
+/**
+ * An email as a staff page shows it ("m…@example.com"), or '' if there's none. A link can be forwarded, so
+ * the page only ever gets this hint, never the email itself.
+ */
+export function maskEmail(email) {
+  const m = /^(.)[^@]*(@.+)$/.exec(String(email || '').trim());
+  return m ? `${m[1]}…${m[2]}` : '';
+}
+
+/** A mobile as a staff page shows it ("Ends in 42"), or '' if there's none; see `maskEmail`. */
+export function maskMobile(mobile) {
+  const digits = String(mobile || '').replace(/\D/g, '');
+  return digits.length >= 2 ? `Ends in ${digits.slice(-2)}` : '';
+}
+
 /** The address of the app itself (no file name, query or hash), for building links. */
 export function appBase() {
   return location.origin + location.pathname.replace(/index\.html$/, '');

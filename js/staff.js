@@ -340,7 +340,10 @@ export async function publish(ids = null) {
     const org = store.data.orgs.find((o) => o.id === p.orgId);
     const content = {
       name: p.name, org: org?.name || '', pco: Boolean(p.pcoId),
-      profile: { name: p.name, email: p.email || '', mobile: p.phone || '' },
+      // Hints only, never the email or mobile itself: anyone the link is forwarded to sees this page.
+      profile: { name: p.name, emailHint: link.maskEmail(p.email), mobileHint: link.maskMobile(p.phone) },
+      // How far this app has read their mailbox, so their page can stop resending details already taken in.
+      seenUpTo: p.staffLink.lastFromStaff || null,
       awayDates: staffDates(p), shifts: upcomingShifts(p), swaps: swapPage(p),
     };
     const fingerprint = shortHash(JSON.stringify(content));
