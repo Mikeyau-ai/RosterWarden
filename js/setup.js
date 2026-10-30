@@ -130,6 +130,7 @@ export function applySetup(draft) {
   for (const p of draft.people || []) {
     if (!p.name?.trim()) continue;
     const person = store.addPerson(p.name, p.weekdays ?? undefined);
+    if (p.email || p.mobile) store.updatePerson(person.id, { email: p.email || '', phone: p.mobile || '' });
     staff.autoLink(person);
     const roleIds = (p.roleNames || [])
       .map((n) => roleIdByName.get(n.trim().toLowerCase()))

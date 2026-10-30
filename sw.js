@@ -47,6 +47,8 @@ const SHELL = [
   './js/staff-link.js',
   './js/views/saved.js',
   './js/views/updates.js',
+  './js/account.js',
+  './js/views/account.js',
   './js/views/settings.js',
   './js/views/wizard.js',
   './icons/icon-192.png',

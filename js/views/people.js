@@ -16,7 +16,7 @@ import { linkUrl } from '../staff-link.js';
 import { SYNC_URL } from '../config.js';
 import {
   el, fill, toast, promptText, confirmDialog, promptDateRange, weekdayPicker, monthGrid,
-  dialog, DAY_LABELS, copyText,
+  dialog, DAY_LABELS, copyText, collapsible,
 } from '../ui.js';
 
 // Id of the person currently open in the editor, or null when showing the list.
@@ -313,7 +313,11 @@ function bulkAddDialog() {
     textarea.addEventListener('input', refresh);
 
     addBtn.addEventListener('click', () => {
-      const created = toAdd.map((e) => store.addPerson(e.name, e.weekdays ?? undefined));
+      const created = toAdd.map((e) => {
+        const person = store.addPerson(e.name, e.weekdays ?? undefined);
+        if (e.email || e.mobile) store.updatePerson(person.id, { email: e.email || '', phone: e.mobile || '' });
+        return person;
+      });
       created.forEach(staff.autoLink);
       toast(`${created.length} added`);
       close(created);
@@ -323,7 +327,7 @@ function bulkAddDialog() {
       el('h2', { textContent: 'Add several people' }),
       el('div', {
         className: 'faint',
-        textContent: 'Paste a list from a message or your notes — one name per line. Put days after a dash if you know them: Mon–Sun, weekdays, weekends, every day.',
+        textContent: 'Paste a list from a message or your notes — one name per line. Add a mobile and email after a comma, and days after a dash if you know them: Mon–Sun, weekdays, weekends, every day.',
       }),
       textarea,
       preview,
@@ -419,9 +423,12 @@ function renderEditor(id, container) {
     },
   });
 
+  // What is needed to roster and reach someone comes first; the rarer rules are folded away.
+  const more = collapsible('person-more', 'More options', [
+    patternCard, wantedCard, maxCard.node, clashCard, togetherCard,
+  ], { open: false, className: 'fold-group' });
   return [
-    header, nameCard.node, availCard, patternCard, rolesCard, wantedCard, maxCard.node, awayCard, linkCard,
-    clashCard, togetherCard, contactCard,
+    header, nameCard.node, contactCard, linkCard, availCard, rolesCard, awayCard, more,
     saveBtn, deleteBtn,
   ];
 }
@@ -635,7 +642,7 @@ function renderStaffLinkCard(person, container) {
     title,
     el('div', { className: 'row-tight', style: 'flex-wrap:wrap' }, send),
     !person.phone && !person.email
-      ? el('div', { className: 'faint', textContent: 'Add their mobile or email below to text or email it from your phone.' })
+      ? el('div', { className: 'faint', textContent: 'Add their mobile or email above to text or email it from your phone.' })
       : null,
     el('div', { className: 'spread' }, [
       el('div', { className: sl.sentAt ? 'faint' : 'muted', textContent: sentLine }),

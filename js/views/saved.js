@@ -17,6 +17,7 @@ import { openDayShifts, rosterDaySource } from './day-shifts.js';
 import * as builderView from './roster.js';
 import * as teamView from './team.js';
 import * as sync from '../sync.js';
+import * as account from '../account.js';
 import * as staff from '../staff.js';
 import { openUpdates } from './updates.js';
 
@@ -91,7 +92,7 @@ function backupNudge() {
   // Sync switches itself on, so the code can exist without the user ever
   // having seen it - and it is the one thing that cannot be recovered. Ask
   // until they say they have it.
-  if (sync.isEnabled() && !sync.codeAcknowledged()) {
+  if (sync.isEnabled() && !sync.codeAcknowledged() && !account.current()) {
     return [el('div', { className: 'notice' }, [
       el('strong', { textContent: 'Save your sync code' }),
       el('div', {

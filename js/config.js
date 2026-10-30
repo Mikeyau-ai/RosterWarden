@@ -24,4 +24,11 @@ export const SYNC_URL = 'https://rosterwarden-sync.mikey-257.workers.dev';
  * into worker/wrangler.toml, and store the secret on the worker (see
  * worker/README.md). Sign-in uses SYNC_URL's worker for the token swap.
  */
+/**
+ * Base URL of the Sixth Day Studios account server, with no trailing slash:
+ * where owners sign in to keep their sync code with an account (js/account.js).
+ * Leave it empty and there is no sign-in; the sync code works as before.
+ */
+export const ACCOUNT_URL = 'https://sixthdaystudios.com';
+
 export const PCO_CLIENT_ID = '6dc7467984d3076ce47c59207e55cdbe0c652518ff890d44ef36351bdc2fe054';

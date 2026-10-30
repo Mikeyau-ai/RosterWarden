@@ -81,3 +81,18 @@ test('a pasted bullet list has its bullets stripped', () => {
 test('unknown tokens mixed with real days keep the real ones', () => {
   assert.deepEqual(parsePeopleList('Sam - Sat and Sun please'), [{ name: 'Sam', weekdays: [5, 6] }]);
 });
+
+test('a mobile and an email after the name are taken out, with days kept', () => {
+  assert.deepEqual(
+    parsePeopleList('Sarah Lee, 0400 123 456, sarah@example.com, Sat, Sun'),
+    [{ name: 'Sarah Lee', weekdays: [5, 6], email: 'sarah@example.com', mobile: '0400 123 456' }]
+  );
+  assert.deepEqual(
+    parsePeopleList('Tom - sam@example.com'),
+    [{ name: 'Tom', weekdays: null, email: 'sam@example.com' }]
+  );
+});
+
+test('numbers that are not phone numbers are left alone', () => {
+  assert.deepEqual(parsePeopleList('Rachel - 12 Nov'), [{ name: 'Rachel', weekdays: null }]);
+});
