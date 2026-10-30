@@ -462,7 +462,8 @@ pre.roster-text {
 .skill-grid .skill-person { text-align: left; position: sticky; left: 0; background: var(--surface); white-space: nowrap; font-weight: 600; }
 .skill-grid .skill-head { font-weight: 600; color: var(--ink-dim); min-width: 4.5rem; }
 .skill-grid input { width: 1.25rem; height: 1.25rem; accent-color: var(--accent); }
-.sheet { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; }
+.sheet { position: fixed; inset: 0; z-index: 30; background: var(--bg); overflow-y: auto; animation: sheet-in .24s cubic-bezier(.2,.7,.2,1); }
+@keyframes sheet-in { from { transform: translateX(100%); } to { transform: none; } }
 .sheet-bar {
   position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: .8rem;
   padding: .6rem 1rem; background: var(--surface); border-bottom: 1px solid var(--line);
@@ -545,6 +546,10 @@ pre.roster-text {
   background: var(--surface); color: var(--ink); box-shadow: var(--shadow);
 }
 .modal::backdrop { background: rgba(0,0,0,.55); }
+.modal[open] { animation: modal-in .18s ease-out; }
+.modal[open]::backdrop { animation: fade-in .18s ease-out; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .modal-body { padding: 1rem; }
 .modal-body > * + * { margin-top: .8rem; }
 .modal h2 { font-size: 1.05rem; }

@@ -19,6 +19,8 @@ import './install.js';
 import * as sync from './sync.js';
 import * as pco from './sources/planning-center.js';
 import * as staff from './staff.js';
+import * as account from './account.js';
+import { signInButtons } from './views/account.js';
 import { keyFromHash } from './staff-link.js';
 import * as staffPage from './views/staff.js';
 import { openWizard } from './views/wizard.js';
@@ -106,7 +108,12 @@ function welcome() {
     // A replacement phone lands here first: offer the way back to its rosters.
     ...(sync.isConfigured() ? [
       el('div', { className: 'or-line', textContent: 'or' }),
-      settingsView.joinButton(joinErr, 'I already use RosterWarden: enter my sync code'),
+      // An account brings the rosters back with no code; the code stays as the way for anyone without one.
+      ...(account.isConfigured() ? [
+        el('div', { className: 'muted', textContent: 'Already use RosterWarden, or want your rosters kept safe?' }),
+        signInButtons(joinErr, () => show('roster')),
+      ] : []),
+      settingsView.joinButton(joinErr, 'Use a sync code instead'),
       joinErr,
     ] : []),
   ]);
@@ -135,6 +142,23 @@ function seedDefaults(kind = 'cafe') {
   addShifts(templateShifts(kind));
 }
 
+/** The order of the tabs, left to right, so a change of screen knows which way to slide. */
+const TAB_ORDER = ['roster', 'new', 'team', 'settings'];
+
+/**
+ * Slide the screen in from the side of the tab that was tapped, with a fade.
+ * Skipped when the person asks their phone for less motion, and a no-op where
+ * the browser can't animate.
+ */
+function slideIn(direction) {
+  const view = document.getElementById('view');
+  if (!direction || !view.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  view.animate(
+    [{ opacity: 0, transform: `translateX(${direction * 28}px)` }, { opacity: 1, transform: 'none' }],
+    { duration: 220, easing: 'cubic-bezier(.2,.7,.2,1)' },
+  );
+}
+
 /** Switch the visible view and update the tab bar. */
 export function show(name, options = {}) {
   closeSheet();   // moving to another screen leaves any sheet behind
@@ -147,6 +171,7 @@ export function show(name, options = {}) {
   if (!VIEWS[name]) name = 'roster';
   if (name === 'settings') settingsView.openSection(options.section ?? null);
   if (name === 'team') teamView.openSection(options.section ?? null);
+  const direction = Math.sign(TAB_ORDER.indexOf(name) - TAB_ORDER.indexOf(current));
   current = name;
   for (const tab of document.querySelectorAll('.tab')) {
     const active = tab.dataset.view === name;
@@ -156,6 +181,7 @@ export function show(name, options = {}) {
     history.replaceState(null, '', `#${name}`);
   }
   render();
+  slideIn(direction);
 }
 
 /** Rebuild the organisation dropdown from the store. */
@@ -265,6 +291,7 @@ function init() {
   // already here rather than replacing it, so switching on never costs anyone
   // the rosters they already had.
   sync.autoEnable();
+  account.keepFresh();
 
   // Every save marks the device as having moved on, and queues an upload.
   store.onSaved((data) => {

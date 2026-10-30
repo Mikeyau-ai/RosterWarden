@@ -19,6 +19,8 @@ import { openWizard } from './wizard.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
 import * as sync from '../sync.js';
 import * as staff from '../staff.js';
+import * as account from '../account.js';
+import { accountCard } from './account.js';
 
 /**
  * Which sub-screen is open, or null for the menu.
@@ -147,7 +149,7 @@ function renderSectionBody(name, container) {
     case 'swaps': return [renderSwapsCard(redraw)];
     case 'planning-center': return [planningCenter.renderCard(redraw)];
     case 'ai': return [renderAICard()];
-    case 'data': return [renderSyncCard(container), renderBackupCard(container)];
+    case 'data': return [accountCard(() => render(container)), renderSyncCard(container), renderBackupCard(container)].filter(Boolean);
     case 'install': return [renderInstallCard(container)];
     case 'about': return [renderAboutCard()];
     default: return [];
@@ -509,6 +511,7 @@ function renderSyncCard(container) {
         sync.setCode(fresh);
         try {
           await sync.push(store.data, fresh);
+          if (account.current()) await account.keepCode(fresh, true);
           toast('Sync is on');
         } catch (e) {
           sync.setCode(null);
