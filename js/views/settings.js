@@ -8,19 +8,17 @@
  */
 import { store } from '../store.js';
 import { PROVIDERS } from '../ai.js';
-import { todayISO } from '../scheduler.js';
 import {
-  el, fill, toast, promptText, confirmDialog, downloadText, weekdayPicker, copyText,
+  el, fill, toast, confirmDialog, weekdayPicker,
   TIME_STEP_SECONDS,
 } from '../ui.js';
-import { show, refreshOrgs } from '../app.js';
+import { show, refreshOrgs, refreshAccount } from '../app.js';
 import * as planningCenter from './planning-center.js';
 import { openWizard } from './wizard.js';
 import { canInstall, isInstalled, isIOS, promptInstall } from '../install.js';
-import * as sync from '../sync.js';
 import * as staff from '../staff.js';
 import * as account from '../account.js';
-import { accountCard } from './account.js';
+import { signInButtons } from './account.js';
 import { STORED_KEY as STAFF_LINK_KEY } from './staff.js';
 
 /**
@@ -60,11 +58,9 @@ const MENU = [
   {
     group: 'App',
     items: [
-      { id: 'data', label: 'Sync and backup', hint: 'Keep your rosters safe and on every device' },
       { id: 'install', label: 'Add to Home Screen', hint: 'One tap away, and working offline' },
       // Not a section: opens the website's guide in a new tab.
       { id: 'help', label: 'Help and FAQ', hint: 'Step-by-step guide and common questions', run: openHelp, external: true },
-      { id: 'about', label: 'About', hint: 'How it works, and erasing everything' },
     ],
   },
 ];
@@ -76,8 +72,6 @@ const MENU = [
 const LEGACY_SECTIONS = {
   hours: 'workplace',
   organisation: 'workplace',
-  sync: 'data',
-  backup: 'data',
 };
 
 /** Sections that describe an organisation, so need one to exist first. */
@@ -92,7 +86,11 @@ export function openSection(name) {
 /** Entry point: the settings menu, or whichever sub-screen is open. */
 export function render(container) {
   if (!section) {
-    fill(container, [el('h2', { textContent: 'Settings' }), ...renderMenu(container)]);
+    // Delete all data and the account line close the menu, below everything else.
+    fill(container, [
+      el('h2', { textContent: 'Settings' }), ...renderMenu(container),
+      el('div', { className: 'settings-foot' }, [deleteAllButton(), accountFooter(() => render(container))]),
+    ]);
     return;
   }
 
@@ -150,9 +148,7 @@ function renderSectionBody(name, container) {
     case 'swaps': return [renderSwapsCard(redraw)];
     case 'planning-center': return [planningCenter.renderCard(redraw)];
     case 'ai': return [renderAICard()];
-    case 'data': return [accountCard(() => render(container)), renderSyncCard(container), renderBackupCard(container)].filter(Boolean);
     case 'install': return [renderInstallCard(container)];
-    case 'about': return [renderAboutCard()];
     default: return [];
   }
 }
@@ -279,90 +275,6 @@ function renderOpeningHours(org) {
   ]);
 }
 
-/** Section: export/import the whole database as a JSON backup file. */
-function renderBackupCard(container) {
-  const importErr = el('div', { className: 'err' });
-
-  const fileInput = el('input', {
-    type: 'file', accept: 'application/json,.json', hidden: true,
-    onchange: async () => {
-      const file = fileInput.files[0];
-      if (!file) return;
-      const ok = await confirmDialog(
-        'Restore from backup',
-        'This replaces everything currently on this device with the contents of this backup file. This cannot be undone.',
-        'Restore'
-      );
-      fileInput.value = '';
-      if (!ok) return;
-      try {
-        const text = await file.text();
-        const { syncCode } = store.importJSON(text);
-        importErr.textContent = '';
-
-        // A backup taken while sync was on carries the code too. Adopting it
-        // is what makes this a full recovery rather than a copy that the
-        // server has never heard of - but it is asked, not assumed, because it
-        // points this device at a different database.
-        if (syncCode && sync.normaliseCode(syncCode) !== sync.currentCode()) {
-          const adopt = await confirmDialog(
-            'Use the sync code from this backup?',
-            'This backup was made on a device with sync switched on. Using its code '
-            + 'reconnects this device to that same synced data — which is what you '
-            + 'want when replacing a lost phone.',
-            'Use it'
-          );
-          if (adopt) {
-            sync.setDisabled(false);
-            sync.setCode(syncCode);
-            sync.acknowledgeCode();      // they clearly have a copy of it
-          }
-        }
-
-        refreshOrgs();
-        toast('Backup restored');
-        show('roster');
-      } catch (err) {
-        importErr.textContent = err.message;
-      }
-    },
-  });
-
-  const exportBtn = el('button', {
-    className: 'btn btn-primary btn-block', textContent: 'Export backup',
-    onclick: () => {
-      const date = todayISO();
-      // Include the sync code so one file restores the data *and* the identity
-      // the server knows this device by.
-      const code = sync.currentCode();
-      downloadText(
-        `rosterwarden-backup-${date}.json`,
-        store.exportJSON(code ? { syncCode: sync.formatCode(code) } : {}),
-        'application/json'
-      );
-      toast('Backup downloaded');
-    },
-  });
-  const importBtn = el('button', {
-    className: 'btn btn-block', textContent: 'Restore from backup',
-    onclick: () => fileInput.click(),
-  });
-
-  return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'Backup' }),
-    el('div', {
-      className: 'notice',
-      textContent: 'Your data lives only in this browser, on this device. Clearing browsing data, ' +
-        'reinstalling the browser, or switching phones would erase it. Export a backup occasionally, ' +
-        'and keep the file somewhere safe (Files, email to yourself, Drive).',
-    }),
-    exportBtn,
-    importBtn,
-    fileInput,
-    importErr,
-  ]);
-}
-
 /** Section: AI provider/model/key used to parse availability notes. */
 function renderAICard() {
   const provider = store.setting('aiProvider') || 'gemini';
@@ -419,205 +331,6 @@ function renderAICard() {
       className: 'faint',
       textContent: 'The key is stored on this device only, and is readable by anyone who can use this ' +
         'device. Fine for personal use - avoid it on a shared phone.',
-    }),
-  ]);
-}
-
-/**
- * A button that brings this device's data in from a sync code entered by
- * hand. Shown whether or not sync is already on here, and on the welcome
- * screen, because a new phone switches sync on by itself at first launch.
- * Problems are written into `err`.
- */
-export function joinButton(err, label = 'Use a code from another device') {
-  return el('button', {
-    type: 'button', className: 'btn btn-block', textContent: label,
-    onclick: async () => {
-      err.textContent = '';
-      const entered = await promptText('Enter sync code', 'Code from your other device');
-      if (!entered) return;
-      if (sync.normaliseCode(entered) === sync.currentCode()) {
-        err.textContent = 'This device is already using that code.';
-        return;
-      }
-      try {
-        const result = await sync.pull(entered);
-        if (!result) {
-          err.textContent = 'No data found for that code — check it and try again.';
-          return;
-        }
-        // A fresh install has already switched sync on with a code of its own,
-        // so this replaces that code too. Say so when there is one to lose.
-        const ok = await confirmDialog(
-          'Replace what is on this device?',
-          'The data from that code will replace everything currently on this device'
-          + (sync.currentCode() ? ', and this device will use that code from now on' : '')
-          + '. Export a backup first if you are not sure.',
-          'Replace'
-        );
-        if (!ok) return;
-        store.importJSON(JSON.stringify(result.data));
-        sync.setDisabled(false);
-        sync.setCode(entered);
-        sync.acknowledgeCode();      // they just typed it in, so they have a copy
-        refreshOrgs();
-        toast('Synced from your other device');
-        show('roster');
-      } catch (e) {
-        err.textContent = e.message;
-      }
-    },
-  });
-}
-
-/**
- * Section: encrypted sync across devices.
- *
- * Everything is encrypted on this device before it is sent, using a key
- * derived from the sync code. The code never leaves the device, so the server
- * - and whoever runs it - stores bytes it cannot read.
- *
- * The flip side is stated plainly in the UI: lose the code and nobody can get
- * the data back, because nobody else ever had the key.
- */
-function renderSyncCard(container) {
-  if (!sync.isConfigured()) {
-    return el('div', { className: 'card' }, [
-      el('h3', { textContent: 'Sync' }),
-      el('div', {
-        className: 'muted',
-        textContent: 'No sync server is set up for this app, so everything stays on '
-          + 'this device. Use Backup to keep a copy safe.',
-      }),
-    ]);
-  }
-
-  const code = sync.currentCode();
-  const err = el('div', { className: 'err' });
-  const redraw = () => render(container);
-
-  const blurb = el('div', {
-    className: 'muted',
-    textContent: 'Sync keeps your rosters on every device you use, and off this '
-      + 'phone alone. Everything is encrypted here before it is sent — the server '
-      + 'stores it but cannot read it.',
-  });
-
-  if (!code) {
-    const startBtn = el('button', {
-      className: 'btn btn-primary btn-block', textContent: 'Turn on sync',
-      onclick: async () => {
-        const fresh = sync.generateCode();
-        sync.setDisabled(false);
-        sync.setCode(fresh);
-        try {
-          await sync.push(store.data, fresh);
-          if (account.current()) await account.keepCode(fresh, true);
-          toast('Sync is on');
-        } catch (e) {
-          sync.setCode(null);
-          err.textContent = e.message;
-        }
-        redraw();
-      },
-    });
-    return el('div', { className: 'card' }, [
-      el('h3', { textContent: 'Sync' }), blurb, err, startBtn, joinButton(err),
-    ]);
-  }
-
-  // Sync is on: show the code, and be blunt about what losing it means.
-  // Grouped for the eye; the stored value stays stripped.
-  const shown = sync.formatCode(code);
-  const codeBox = el('div', { className: 'sync-code mono', textContent: shown });
-  const state = sync.status.state === 'error'
-    ? `Last sync failed: ${sync.status.message}`
-    : sync.status.state === 'synced' ? 'Up to date.'
-      : sync.status.state === 'pending' ? 'Saving changes…' : 'Ready.';
-
-  return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'Sync' }),
-    blurb,
-    el('label', { className: 'label', textContent: 'Your sync code' }),
-    codeBox,
-    el('div', { className: 'notice bad' }, [
-      el('strong', { textContent: 'Write this down.' }),
-      el('div', {
-        textContent: 'It is the only key to your data. Nobody — including whoever '
-          + 'runs the server — can recover it for you if it is lost, because nobody '
-          + 'else has ever had it.',
-      }),
-    ]),
-    // Getting the code into email is the practical answer to "what if I lose
-    // the phone": email already has its own account recovery, so borrowing it
-    // gives a way back in without the server ever being able to read anything.
-    el('button', {
-      className: 'btn btn-primary btn-block', textContent: 'Send this code to myself',
-      onclick: async () => {
-        const body = `RosterWarden sync code: ${shown}\n\n`
-          + 'Keep this. It is the only key to your rosters — entering it in RosterWarden '
-          + 'on a new phone brings everything back. Nobody can recover it for you, '
-          + 'not even whoever runs the server, because nobody else has ever had it.';
-        try {
-          if (navigator.share) {
-            await navigator.share({ title: 'RosterWarden sync code', text: body });
-          } else {
-            // No share sheet (most desktop browsers): hand it to the mail client.
-            window.location.href = `mailto:?subject=${encodeURIComponent('RosterWarden sync code')}`
-              + `&body=${encodeURIComponent(body)}`;
-          }
-          sync.acknowledgeCode();
-          redraw();
-        } catch (e) {
-          if (e && e.name === 'AbortError') return;   // they closed the sheet
-          copyText(shown);
-        }
-      },
-    }),
-    sync.codeAcknowledged() ? null : el('button', {
-      className: 'btn btn-block', textContent: 'I have written it down',
-      onclick: () => {
-        sync.acknowledgeCode();
-        toast('Thanks — that reminder will stop now');
-        redraw();
-      },
-    }),
-    el('div', { className: 'row' }, [
-      el('button', {
-        className: 'btn', textContent: 'Copy code', onclick: () => copyText(shown),
-      }),
-      el('button', {
-        className: 'btn', textContent: 'Sync now',
-        onclick: async () => {
-          err.textContent = '';
-          try {
-            await sync.push(store.data);
-            toast('Synced');
-          } catch (e) { err.textContent = e.message; }
-          redraw();
-        },
-      }),
-    ]),
-    el('div', { className: 'faint', textContent: state }),
-    err,
-    joinButton(err),
-    el('button', {
-      className: 'btn btn-danger btn-block', textContent: 'Turn off sync on this device',
-      onclick: async () => {
-        const ok = await confirmDialog(
-          'Turn off sync?',
-          'This device will stop sending changes. Your rosters stay on this device, '
-          + 'and the copy on the server is left as it is.',
-          'Turn off'
-        );
-        if (!ok) return;
-        sync.setCode(null);
-        // Remember the choice: without this, the next launch would helpfully
-        // switch sync straight back on again.
-        sync.setDisabled(true);
-        toast('Sync off');
-        redraw();
-      },
     }),
   ]);
 }
@@ -680,15 +393,15 @@ function renderInstallCard(container) {
   ]);
 }
 
-/** Section: app identity and the full data wipe. */
-function renderAboutCard() {
-  const deleteAllBtn = el('button', {
+/** The red Delete all data button, at the foot of the Settings menu. */
+function deleteAllButton() {
+  return el('button', {
     className: 'btn btn-danger btn-block', textContent: 'Delete all data',
     onclick: async () => {
       const ok = await confirmDialog(
         'Delete all data',
         'This permanently deletes every organisation, person, shift and saved roster on this device, and switches off '
-          + 'every staff link you have sent. There is no undo. Make sure you have a backup if you might want any of this again.',
+          + 'every staff link you have sent. There is no undo.',
         'Delete everything'
       );
       if (!ok) return;
@@ -712,27 +425,34 @@ function renderAboutCard() {
       toast('All data deleted');
     },
   });
+}
 
-  // How it works: the one-time setup, then the build loop.
-  const howSteps = [
-    'Add your people and tick the days each of them can work.',
-    'Set up the shifts a day is made of, and your opening days and hours.',
-    'Note who is away, and any two people who should not be rostered together.',
-    'Pick the dates on the calendar and press Build. RosterWarden spreads the '
-      + 'shifts fairly, honours every constraint, and says so plainly when it '
-      + 'cannot fill one.',
-  ];
-
-  return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'About' }),
-    el('div', { textContent: 'RosterWarden' }),
-    el('div', { className: 'muted', textContent: 'Everything stays on this device.' }),
-    el('h4', { textContent: 'How it works' }),
-    el('ol', { className: 'install-steps' }, howSteps.map((s) => el('li', { textContent: s }))),
-    el('a', {
-      className: 'btn btn-block', href: HELP_URL, target: '_blank', rel: 'noopener',
-      textContent: 'Help and FAQ ↗',
+/**
+ * The account line under Delete all data, last on the Settings menu: who is signed in and a Sign out link, or
+ * the Sign in and Sign up buttons. Null where the app has no account server.
+ */
+function accountFooter(redraw) {
+  if (!account.isConfigured()) return null;
+  const who = account.current();
+  if (!who) {
+    const err = el('div', { className: 'err' });
+    return el('div', { className: 'settings-account' }, [
+      el('div', { className: 'muted', textContent: 'Sign in and your rosters come back on any phone.' }),
+      err,
+      signInButtons(err, redraw),
+    ]);
+  }
+  return el('div', { className: 'settings-account' }, [
+    el('div', { className: 'muted', textContent: `Signed in as ${who.email}` }),
+    el('button', {
+      type: 'button', className: 'link-btn', textContent: 'Sign out',
+      onclick: async () => {
+        const ok = await confirmDialog('Sign out?', 'Your rosters stay on this device and keep syncing. Sign in again any time.', 'Sign out');
+        if (!ok) return;
+        account.signOut();
+        refreshAccount();
+        redraw();
+      },
     }),
-    deleteAllBtn,
   ]);
 }

@@ -12,12 +12,11 @@ import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet, clos
 import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
-import { show } from '../app.js';
 import { openDayShifts, rosterDaySource } from './day-shifts.js';
 import * as builderView from './roster.js';
 import * as teamView from './team.js';
-import * as sync from '../sync.js';
 import * as account from '../account.js';
+import { signInButtons } from './account.js';
 import * as staff from '../staff.js';
 import { openUpdates } from './updates.js';
 
@@ -82,50 +81,20 @@ function updatesButton() {
 }
 
 /**
- * A reminder to export, shown on the list once a backup is overdue.
+ * Asks someone who isn't signed in to sign in, on the screen people actually open.
  *
- * With sync switched off, an export is the only thing between a cleared
- * browser and losing everything. Saying so on the screen people actually open
- * beats a line in a README nobody reads.
+ * Sync backs the rosters up by itself, but the code that unlocks them lives only on this device until an
+ * account keeps it. Signed in, a new or wiped phone gets everything back; signed out, losing this phone loses
+ * them. There's no code to write down any more, so signing in is the one way to be safe.
  */
 function backupNudge() {
-  // Sync switches itself on, so the code can exist without the user ever
-  // having seen it - and it is the one thing that cannot be recovered. Ask
-  // until they say they have it.
-  if (sync.isEnabled() && !sync.codeAcknowledged() && !account.current()) {
-    return [el('div', { className: 'notice' }, [
-      el('strong', { textContent: 'Save your sync code' }),
-      el('div', {
-        textContent: 'Your rosters are backed up automatically, but the code that '
-          + 'unlocks them exists only on this device. Write it down and this will stop asking.',
-      }),
-      el('button', {
-        className: 'btn btn-sm', textContent: 'Show my code',
-        style: 'margin-top:.5rem',
-        onclick: () => show('settings', { section: 'sync' }),
-      }),
-    ])];
-  }
-
-  // With sync on, the data is already off this device, so the warning below
-  // would simply be untrue. Sync's own state is reported in Settings.
-  if (sync.isEnabled()) return [];
-  if (!store.backupOverdue()) return [];
-  const days = store.daysSinceBackup();
-
+  if (!account.isConfigured() || account.current()) return [];
+  const err = el('div', { className: 'err' });
   return [el('div', { className: 'notice' }, [
-    el('strong', {
-      textContent: days === null ? 'No backup yet' : `Last backup was ${days} days ago`,
-    }),
-    el('div', {
-      textContent: 'Your rosters live only on this device. If the browser data is '
-        + 'cleared, they are gone. Exporting takes a second.',
-    }),
-    el('button', {
-      className: 'btn btn-sm', textContent: 'Export backup now',
-      style: 'margin-top:.5rem',
-      onclick: () => show('settings', { section: 'backup' }),
-    }),
+    el('strong', { textContent: 'Keep your rosters safe' }),
+    el('div', { textContent: 'Sign in and they come back on any phone, even if this one is lost or wiped.' }),
+    err,
+    el('div', { style: 'margin-top:.5rem' }, [signInButtons(err, () => {})]),
   ])];
 }
 

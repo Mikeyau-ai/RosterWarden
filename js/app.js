@@ -117,12 +117,11 @@ function welcome() {
       ...(account.current() ? [
         el('div', { className: 'muted', textContent: `Signed in as ${account.current().email}. The workplace you set up here is kept with your account.` }),
       ] : []),
-      // An account brings the rosters back with no code; the code stays as the way for anyone without one.
+      // An account is the way back to the rosters on a new phone (it keeps the sync code, so nobody types one).
       ...(account.isConfigured() && !account.current() ? [
         el('div', { className: 'muted', textContent: 'Already use RosterWarden, or want your rosters kept safe?' }),
         signInButtons(joinErr, () => show('roster')),
       ] : []),
-      settingsView.joinButton(joinErr, 'Use a sync code instead'),
       joinErr,
     ] : []),
   ]);
@@ -328,8 +327,8 @@ function init() {
   });
   refreshOrgs();
   refreshAccount();
-  // The name in the bar opens the account card (Settings → Data), where Sign out is.
-  document.getElementById('account-chip').addEventListener('click', () => show('settings', { section: 'data' }));
+  // The name in the bar opens Settings, whose last line is the account and Sign out.
+  document.getElementById('account-chip').addEventListener('click', () => show('settings'));
 
   for (const tab of document.querySelectorAll('.tab')) {
     tab.addEventListener('click', () => show(tab.dataset.view));
