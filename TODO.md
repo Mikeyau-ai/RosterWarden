@@ -47,3 +47,17 @@ shown by `app.js` after `collect`). Keep a reviewable log instead.
 - [ ] **Tests:** entries written for each kind, no duplicates on a repeat send, pruning, and the
       seen count.
 - [ ] **Docs:** README and the help guide (staff links section and an FAQ).
+
+## Later: roster screen actions in a bottom bar (asked 2026-10-30)
+
+Today **Share / export**, **Edit**, **Undo** and **Rebuild** sit under the roster's name, and
+**← Rosters** is at the top (`renderOpen` in `js/views/saved.js`). Move the main actions to a bar
+pinned at the foot of the screen, like New Roster's build bar (`.build-bar`):
+
+- [ ] **← Rosters** (exit) | **Edit**, which reads **Done** while editing, with a brief "Saved"
+      when tapped (changes already save as you go, so there is no separate save step) | **Send**
+      (the current Share / export menu, renamed).
+- [ ] Undo and Rebuild stay near the top, or go into the bar while editing. Decide when building.
+      Next one and Delete stay at the foot of the page.
+- [ ] Check at phone width that the bar doesn't cover the last day card (pad the page bottom).
+- [ ] Help guide "After building" section and README: say where Send and Edit now are.
