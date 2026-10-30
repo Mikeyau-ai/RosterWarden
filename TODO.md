@@ -27,3 +27,23 @@ page sends its whole state, and the owner's app takes it in on collect.
 - [ ] **Tests:** add to `tests/staff-links.test.mjs` the cases apply, suggest, accept/dismiss,
       bad email, and an unchanged repeat send.
 - [ ] **Docs:** README "Staff availability links", plus the help guide section and an FAQ.
+
+## Later: "Updates from staff" log for the owner (asked 2026-10-30)
+
+Replies through staff links only show as a short toast today (`takeSwapNews` in `js/staff.js`,
+shown by `app.js` after `collect`). Keep a reviewable log instead.
+
+- [ ] **Store:** `store.data.activity`, entries `{ id, orgId, at, personId, kind, text, rosterId?,
+      date?, seen }`, where `kind` is `reply`, `dates`, `note`, `swap` or later `profile`. Synced and
+      backed up like the rest. Prune entries older than 90 days on collect.
+- [ ] **Write entries** where the toast text is made now: `takeReplies` (can / can't do),
+      `takeSwaps` (asks, answers, handovers), and `collect`. For `collect`, log dates added and
+      removed (diff against their previous staff dates), whether any clash with a saved roster,
+      and a changed note.
+- [ ] **Roster screen:** an **Updates** button with an unseen count. It opens a sheet listing the
+      entries newest first, grouped by day, with unseen ones highlighted. Each has **Open roster**,
+      plus **Replace** for a "can't do" still on the roster. **Mark all seen** clears the count.
+- [ ] **Toast:** keep it, adding **See all**, which opens the sheet.
+- [ ] **Tests:** entries written for each kind, no duplicates on a repeat send, pruning, and the
+      seen count.
+- [ ] **Docs:** README and the help guide (staff links section and an FAQ).
