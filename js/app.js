@@ -284,8 +284,8 @@ function init() {
   store.load();
 
   // A staff member reopening the installed app (no hash) comes back to their page,
-  // as long as this phone isn't also someone's roster.
-  if (store.orgs().length === 0 && rememberedLink()) { startStaffPage(rememberedLink()); return; }
+  // as long as this phone isn't also someone's roster, or signed in to an account.
+  if (!location.hash && store.orgs().length === 0 && !account.current() && rememberedLink()) { startStaffPage(rememberedLink()); return; }
 
   // Sync is on unless the user has turned it off. Enabling it uploads what is
   // already here rather than replacing it, so switching on never costs anyone

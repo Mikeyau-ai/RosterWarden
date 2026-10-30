@@ -348,5 +348,14 @@ export async function render(container, key) {
     save,
     status,
     el('p', { className: 'faint', textContent: 'Only you and whoever does the roster can see this. Keep this link to yourself.' }),
+    // The way out for someone who is really the one doing the roster (or testing): forget this link here.
+    el('button', {
+      className: 'btn btn-ghost btn-block', textContent: 'Not on the team? Open RosterWarden for managing rosters',
+      onclick: () => {
+        try { localStorage.removeItem(STORED_KEY); } catch { /* fine */ }
+        location.href = `${location.pathname}#roster`;
+        location.reload();
+      },
+    }),
   ]);
 }
