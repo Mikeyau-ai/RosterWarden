@@ -68,6 +68,7 @@ export function openWizard({ name = '', kind = 'cafe' } = {}) {
       err.textContent = '';
       const step = steps()[at];
       if (delta > 0) {
+        if (step.id === 'team') takeTyped();
         const problem = check(step.id);
         if (problem) { err.textContent = problem; return; }
       }
@@ -288,10 +289,13 @@ function shiftsStep(draft, edited, redraw) {
   ];
 }
 
+/** Adds whatever is typed in the team step's box; set while that step is showing. */
+let takeTyped = () => {};
+
 /** Step 4: the people, from a pasted list or one name at a time. */
 function teamStep(draft, redraw) {
   const paste = el('textarea', {
-    rows: 4, placeholder: 'Sarah - Sat, Sun\nTom - weekdays\nRachel', 'aria-label': 'Names, one per line',
+    rows: 4, placeholder: 'Sarah Lee, 0400 123 456, sarah@example.com\nTom - weekdays\nRachel', 'aria-label': 'Names, one per line',
   });
   const note = el('div', { className: 'faint' });
 
@@ -300,14 +304,18 @@ function teamStep(draft, redraw) {
     const have = new Set(draft.people.map((p) => p.name.toLowerCase()));
     const found = parsePeopleList(paste.value).filter((p) => !have.has(p.name.toLowerCase()) && have.add(p.name.toLowerCase()));
     if (found.length === 0) { note.textContent = paste.value.trim() ? 'Those are all on the list already.' : 'Type or paste some names first.'; return; }
-    draft.people.push(...found.map((p) => ({ name: p.name, weekdays: p.weekdays, roleNames: [] })));
+    draft.people.push(...found.map((p) => ({ name: p.name, weekdays: p.weekdays, email: p.email, mobile: p.mobile, roleNames: [] })));
+    paste.value = '';
     redraw();
   };
+
+  // Next takes in what is typed, so a list never has to be added with a separate tap.
+  takeTyped = () => { if (paste.value.trim()) add(); };
 
   const rows = draft.people.map((person, i) => el('div', { className: 'spread wiz-person' }, [
     el('div', {}, [
       el('div', { textContent: person.name }),
-      el('div', { className: 'faint', textContent: daysText(person.weekdays) }),
+      el('div', { className: 'faint', textContent: [daysText(person.weekdays), person.mobile, person.email].filter(Boolean).join(' · ') }),
     ]),
     el('button', {
       type: 'button', className: 'btn btn-sm btn-ghost', textContent: '×', 'aria-label': `Remove ${person.name}`,
@@ -316,7 +324,7 @@ function teamStep(draft, redraw) {
   ]));
 
   return [
-    el('p', { className: 'muted', textContent: 'Type or paste names, one per line. Add the days someone can work after a dash if they can’t do every day.' }),
+    el('p', { className: 'muted', textContent: 'Type or paste names, one per line. Add a mobile and email after a comma so you can send each person their link, and the days someone can work after a dash if they can’t do every day.' }),
     paste,
     el('button', { type: 'button', className: 'btn btn-block', textContent: 'Add to the team', onclick: add }),
     note,
