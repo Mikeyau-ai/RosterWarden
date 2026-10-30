@@ -74,6 +74,7 @@ function renderList(container) {
       const name = await promptText('New person', "What's their name?");
       if (!name) return;
       const person = store.addPerson(name);
+      staff.autoLink(person);
       editingId = person.id;
       render(container);
     },
@@ -313,6 +314,7 @@ function bulkAddDialog() {
 
     addBtn.addEventListener('click', () => {
       const created = toAdd.map((e) => store.addPerson(e.name, e.weekdays ?? undefined));
+      created.forEach(staff.autoLink);
       toast(`${created.length} added`);
       close(created);
     });
@@ -641,6 +643,13 @@ function renderStaffLinkCard(person, container) {
     ]),
     el('div', { className: 'faint', textContent: heard }),
     sl.note ? el('div', { className: 'muted', textContent: `"${sl.note}"` }) : null,
+    sl.profileSuggestion ? el('div', { className: 'spread' }, [
+      el('div', { textContent: `${first} would like their name to be "${sl.profileSuggestion.name}"` }),
+      el('div', { className: 'row-tight' }, [
+        el('button', { className: 'btn btn-sm btn-primary', textContent: 'Accept', onclick: () => { staff.resolveNameSuggestion(person.id, true); redraw(); } }),
+        el('button', { className: 'btn btn-sm', textContent: 'Dismiss', onclick: () => { staff.resolveNameSuggestion(person.id, false); redraw(); } }),
+      ]),
+    ]) : null,
     upcoming.length ? el('div', { className: 'spread' }, [
       el('div', { textContent: `${upcoming.length} upcoming date${upcoming.length === 1 ? '' : 's'} from their link` }),
       el('button', {

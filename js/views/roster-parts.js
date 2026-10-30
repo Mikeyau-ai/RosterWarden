@@ -197,7 +197,7 @@ export function editableDayCards(roster, people, shifts, apply, onEditDay = null
  * other day of the roster. Choosing one applies the change through `apply`;
  * "Take off" just removes them.
  */
-async function pickReplacement(roster, people, shifts, assignment, roleById, apply) {
+export async function pickReplacement(roster, people, shifts, assignment, roleById, apply) {
   const nameOf = (id) => people.find((p) => p.id === id)?.name || '(removed)';
   const shiftOf = (id, date) => shiftOn(roster, date, id, shifts)?.name || '(removed)';
   const roleLabel = (a) => (a.roleId != null ? `, ${roleById.get(a.roleId)?.name || 'removed role'}` : '');
@@ -579,10 +579,10 @@ export function notesBox(roster) {
   );
 }
 
-/** The Share / export button for a roster; opens the export menu. */
+/** The Send button for a roster; opens the share and export menu. */
 export function exportButton(roster, people, shifts, onReplies = () => {}) {
   return el('button', {
-    className: 'btn', textContent: 'Share / export',
+    className: 'btn btn-primary', textContent: 'Send',
     onclick: () => openExport(roster, people, shifts, onReplies),
   });
 }

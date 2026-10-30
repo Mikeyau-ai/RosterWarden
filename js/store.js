@@ -88,6 +88,8 @@ function emptyData() {
     rosters: [],
     // Shift swaps staff asked for through their links (see js/staff.js).
     swaps: [],
+    // What staff sent through their links, for the owner to review (see js/staff.js).
+    activity: [],
     settings: { aiProvider: 'gemini', aiModel: '', aiKey: '' },
   };
 }
@@ -261,6 +263,7 @@ export const store = {
     this.data.clashes = this.data.clashes.filter((c) => c.orgId !== id);
     this.data.rosters = this.data.rosters.filter((r) => r.orgId !== id);
     this.data.swaps = this.data.swaps.filter((w) => w.orgId !== id);
+    this.data.activity = this.data.activity.filter((a) => a.orgId !== id);
     if (this.data.currentOrgId === id) {
       this.data.currentOrgId = this.data.orgs[0]?.id ?? null;
     }

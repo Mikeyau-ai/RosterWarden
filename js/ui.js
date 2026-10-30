@@ -48,12 +48,20 @@ export function fill(node, children) {
 
 /** Show a brief confirmation message at the bottom of the screen. */
 let toastTimer = null;
-export function toast(message) {
+export function toast(message, action = null) {
   const node = document.getElementById('toast');
   node.textContent = message;
+  // An action ({ label, onclick }) adds a button and keeps the toast up longer.
+  node.classList.toggle('has-action', Boolean(action));
+  if (action) {
+    node.append(' ', el('button', {
+      className: 'toast-action', textContent: action.label,
+      onclick: () => { node.classList.remove('show'); action.onclick(); },
+    }));
+  }
   node.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => node.classList.remove('show'), 2400);
+  toastTimer = setTimeout(() => node.classList.remove('show'), action ? 6000 : 2400);
 }
 
 /**

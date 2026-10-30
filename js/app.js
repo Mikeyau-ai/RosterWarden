@@ -356,7 +356,7 @@ async function collectStaff() {
     const swapNews = staff.takeSwapNews();
     toast(swapNews.length ? swapNews.join('. ') : clashes.length
       ? `New dates from ${names}: ${clashes.length} clash with a saved roster`
-      : `New dates from ${names}`);
+      : `New dates from ${names}`, { label: 'See all', onclick: savedView.showUpdates });
     render();
   } catch {
     // Offline or the server is down: the next check will catch up.
