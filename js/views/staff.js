@@ -13,7 +13,7 @@
  */
 import { el, fill, monthGrid, dialog, toast } from '../ui.js';
 import { todayISO } from '../scheduler.js';
-import { boxesFor, readBox, writeBox, LinkReplaced } from '../staff-link.js';
+import { boxesFor, readBox, writeBox, LinkReplaced, maskEmail, maskMobile } from '../staff-link.js';
 
 /** Where this phone remembers its link, so reopening the app comes back here. */
 export const STORED_KEY = 'rosterwarden.staff.key';
@@ -256,21 +256,35 @@ export async function render(container, key) {
     swapAnswers: (mine?.value?.swapAnswers || []).filter((a) => waiting.has(a.id)),
     // Their answers to shifts still on their page; ones for shifts gone are dropped.
     shiftReplies: (mine?.value?.shiftReplies || []).filter((r) => (info.shifts || []).some((s) => s.ref === r.ref)),
-    // Their details: what they last sent, else what the owner has for them.
-    profile: mine?.value?.profile || info.profile || { name: info.name || '', email: '', mobile: '' },
+    // Their details. The page is never given their email or mobile (a link can be forwarded), only hints, so
+    // those go out blank ("no change") unless they type a new one. One they typed is kept, and resent, only
+    // until the owner's app has read it (`seenUpTo`), so a quick second send can't drop it unread.
+    profile: {
+      name: mine?.value?.profile?.name || info.profile?.name || info.name || '',
+      ...(mine && mine.updatedAt > (info.seenUpTo || '')
+        ? { email: mine.value?.profile?.email || '', mobile: mine.value?.profile?.mobile || '' }
+        : { email: '', mobile: '' }),
+    },
   };
 
-  // The details card. Planning Center people have their name and email from there.
+  // The details card. Planning Center people have their name and email from there. Email and mobile start
+  // empty, with what's on file as a hint; anything typed replaces it.
   const field = (label, key, attrs = {}) => {
-    const input = el('input', { type: 'text', value: sent.profile[key] || '', ...attrs });
+    const input = el('input', { type: 'text', value: key === 'name' ? sent.profile.name : '', ...attrs });
     return { input, node: el('div', {}, [el('label', { className: 'label', textContent: label }), input]) };
   };
   const nameField = field('Name', 'name', { maxLength: 80, autocomplete: 'name', disabled: Boolean(info.pco) });
-  const emailField = field('Email', 'email', { type: 'email', maxLength: 120, autocomplete: 'email', disabled: Boolean(info.pco) });
-  const mobileField = field('Mobile', 'mobile', { type: 'tel', maxLength: 25, autocomplete: 'tel' });
+  const emailField = field('Email', 'email', {
+    type: 'email', maxLength: 120, autocomplete: 'email', disabled: Boolean(info.pco),
+    placeholder: info.profile?.emailHint || 'None on file',
+  });
+  const mobileField = field('Mobile', 'mobile', {
+    type: 'tel', maxLength: 25, autocomplete: 'tel', placeholder: info.profile?.mobileHint || 'None on file',
+  });
   const detailsCard = el('div', { className: 'card' }, [
     el('label', { className: 'label', textContent: 'Your details' }),
     nameField.node, emailField.node, mobileField.node,
+    el('div', { className: 'faint', textContent: 'Your email and mobile are only hinted at here, to keep them private. Type a new one to change it.' }),
     info.pco ? el('div', { className: 'faint', textContent: 'Your name and email come from Planning Center, so change them there.' }) : null,
   ]);
 
@@ -290,10 +304,16 @@ export async function render(container, key) {
       try {
         sent.awayDates = [...away].filter((d) => d >= today).sort();
         sent.note = note.value.trim().slice(0, 500);
+        // Blank email or mobile means no change; one typed earlier and not yet read by the owner is kept.
         sent.profile = {
-          name: nameField.input.value.trim(), email: emailField.input.value.trim(), mobile: mobileField.input.value.trim(),
+          name: nameField.input.value.trim(),
+          email: emailField.input.value.trim() || sent.profile.email,
+          mobile: mobileField.input.value.trim() || sent.profile.mobile,
         };
         await send();
+        // Sent: show it as a hint like the rest, rather than leaving it written out on the page.
+        if (emailField.input.value.trim()) { emailField.input.placeholder = maskEmail(sent.profile.email) || 'None on file'; emailField.input.value = ''; }
+        if (mobileField.input.value.trim()) { mobileField.input.placeholder = maskMobile(sent.profile.mobile) || 'None on file'; mobileField.input.value = ''; }
         status.textContent = `Saved. ${info.org || 'They'} will see it next time they open RosterWarden.`;
       } catch (e) {
         status.textContent = e.message;
