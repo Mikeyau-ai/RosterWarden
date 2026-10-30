@@ -20,7 +20,7 @@ import * as sync from './sync.js';
 import * as pco from './sources/planning-center.js';
 import * as staff from './staff.js';
 import * as account from './account.js';
-import { signInButtons } from './views/account.js';
+import { signInButtons, resumeSignIn } from './views/account.js';
 import { keyFromHash } from './staff-link.js';
 import * as staffPage from './views/staff.js';
 import { openWizard } from './views/wizard.js';
@@ -292,6 +292,8 @@ function init() {
   // the rosters they already had.
   sync.autoEnable();
   account.keepFresh();
+  // Back from signing in on the site: finish it, then show the rosters that came with the account.
+  resumeSignIn().then((signedIn) => { if (signedIn) render(); });
 
   // Every save marks the device as having moved on, and queues an upload.
   store.onSaved((data) => {

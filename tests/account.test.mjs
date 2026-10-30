@@ -96,3 +96,19 @@ test('a token is refreshed in place, and dropped when the account says no', asyn
   await account.keepFresh();               // tok-2 is refused by the stand-in
   assert.equal(account.current(), null);
 });
+
+test('beginning a sign-in sends the code in the address and is finished on return', async () => {
+  setUp();
+  const url = await account.begin();
+  assert.equal(url, 'https://x/link?code=AB12-CD34');
+  assert.ok(account.pending());
+  server.approved = true;
+  assert.equal((await account.resume()).email, 'boss@example.com');
+  assert.equal(account.pending(), null, 'it is only finished once');
+});
+
+test('signing up goes to the registration page and starts nothing waiting', async () => {
+  setUp();
+  assert.match(await account.begin(true), /\/register$/);
+  assert.equal(account.pending(), null);
+});

@@ -85,6 +85,48 @@ export async function start() {
   return data;
 }
 
+/** localStorage key for a sign-in that has gone off to the site and is waiting to come back. */
+const PENDING_KEY = 'rosterwarden.account.pending';
+
+/**
+ * Begin signing in: ask for a code, remember it for when this page comes back
+ * from the site, and return the address to send the person to (the code rides
+ * in it, so they never see or type it). `signUp` goes to the sign-up page.
+ */
+export async function begin(signUp = false) {
+  // Signing up has no code yet: they make the account, then tap Sign in.
+  if (signUp) return `${ACCOUNT_URL}/register`;
+  const started = await start();
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ poll: started.poll, interval: started.interval, until: Date.now() + started.expires_in * 1000 }));
+  } catch { /* private mode: signing in from this page just won't resume */ }
+  return `${started.url}?code=${encodeURIComponent(started.user_code)}`;
+}
+
+/** Whether a sign-in is waiting to be finished (it went to the site and hasn't expired). */
+export function pending() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+    return p && p.until > Date.now() ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Finish a sign-in that went to the site: wait for its approval, then forget
+ * it. Returns `{ email, name }`, or null if it was never approved in time.
+ */
+export async function resume() {
+  const p = pending();
+  if (!p) return null;
+  try {
+    return await waitForApproval({ poll: p.poll, interval: p.interval, expires_in: (p.until - Date.now()) / 1000 });
+  } finally {
+    try { localStorage.removeItem(PENDING_KEY); } catch { /* nothing to do */ }
+  }
+}
+
 /**
  * Wait for the code from `start()` to be approved on the site, then keep the
  * token and return `{ email, name }`. `cancelled()` is checked between polls.
