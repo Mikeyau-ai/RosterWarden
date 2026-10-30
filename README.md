@@ -31,8 +31,10 @@ Four sections:
 - **Settings**, in three groups:
   - *Your workplace*: Name and opening hours, Shift swaps
   - *Connections*: Planning Center, AI assist
-  - *App*: Sync and backup, Add to Home Screen, Help and FAQ (opens the guide
-    at <https://sixthdaystudios.com/rosterwarden/help>), About
+  - *App*: Add to Home Screen, Help and FAQ (opens the guide
+    at <https://sixthdaystudios.com/rosterwarden/help>)
+  - then, at the foot, the red **Delete all data** button and the account line
+    (who is signed in and **Sign out**, or **Sign in** / **Sign up**)
 
 1. **Name your workplace** on the welcome screen and pick a starting point: a
    cafe (one shift of two people), a worship team (a service with lead singer,
@@ -300,18 +302,16 @@ the card just says Planning Center isn't set up.
 **Never put the secret (or a personal access token) in the app's own files.**
 This is a public static site: anything in it can be read by anyone.
 
-## Backups and sync
+## Accounts and sync
 
-With **sync** on (the default when a sync server is configured), your data is
-encrypted on the device and kept on the server, which stores it but cannot read
-it. Your **sync code** brings everything back on a new phone: enter it from the
-welcome screen, or **Settings → Sync and backup → Use a code from another
-device**. **Lose the code and the data is gone**: nobody else has ever held the
-key, which is the point.
+**Sync** is on by itself when a sync server is configured: your data is
+encrypted on the device with a random sync code and kept on the server, which
+stores it but cannot read it. There is no code to see or type any more: a
+signed-in **account** keeps the code (`js/account.js`), so a new phone gets
+everything back by signing in. Until someone signs in, the code exists only on
+that device, so the Roster screen asks them to sign in.
 
-Without sync, everything is in this browser's storage only, and **clearing your
-browsing data erases it**. Use **Settings → Sync and backup → Export backup** now
-and then; **Restore from backup** puts it all back.
+There are no export or restore buttons; the sync code and account replace them.
 
 ## The scheduler
 

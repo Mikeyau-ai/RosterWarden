@@ -5,8 +5,8 @@
  * The account itself is js/account.js.
  */
 import { store } from '../store.js';
-import { el, toast, dialog, confirmDialog } from '../ui.js';
-import { refreshOrgs, refreshAccount, show } from '../app.js';
+import { el, toast, dialog } from '../ui.js';
+import { refreshOrgs, show } from '../app.js';
 import * as account from '../account.js';
 import * as sync from '../sync.js';
 
@@ -98,41 +98,5 @@ export function signInButtons(err, done) {
       type: 'button', className: 'btn', style: 'flex:1', textContent: 'Sign up',
       onclick: () => signIn({ signUp: true }, err, done),
     }),
-  ]);
-}
-
-/** Settings card: who is signed in, or the buttons to sign in or up. Null where no account server is set up. */
-export function accountCard(redraw) {
-  if (!account.isConfigured() || !sync.isConfigured()) return null;
-  const who = account.current();
-  const err = el('div', { className: 'err' });
-  if (who) {
-    return el('div', { className: 'card' }, [
-      el('h3', { textContent: 'Your account' }),
-      el('div', { textContent: `Signed in as ${who.email}` }),
-      el('div', {
-        className: 'muted',
-        textContent: 'Your rosters are kept with this account. Sign in on a new phone and they come back, no code to type.',
-      }),
-      el('button', {
-        className: 'btn btn-block', textContent: 'Sign out',
-        onclick: async () => {
-          const ok = await confirmDialog('Sign out?', 'Your rosters stay on this device and keep syncing. Sign in again any time.', 'Sign out');
-          if (!ok) return;
-          account.signOut();
-          refreshAccount();
-          redraw();
-        },
-      }),
-    ]);
-  }
-  return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'Your account' }),
-    el('div', {
-      className: 'muted',
-      textContent: 'Sign in with Google, Microsoft or email and your rosters come back on any phone, with no sync code to keep safe.',
-    }),
-    err,
-    signInButtons(err, redraw),
   ]);
 }
