@@ -1,7 +1,7 @@
 /**
  * The owner's account (js/account.js) against a stand-in for the Sixth Day
- * account server: sign in with a code approved elsewhere, keep the sync code,
- * and line a device's code up with the account's.
+ * account server: sign in by going to the site and coming back with a one-time
+ * code (PKCE), keep the sync code, and line a device's code up with the account's.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,17 +12,28 @@ globalThis.localStorage = {
   setItem: (k, v) => mem.set(k, String(v)),
   removeItem: (k) => mem.delete(k),
 };
+globalThis.location = { origin: 'https://rosterwarden.sixthdaystudios.com', pathname: '/' };
 
-// A tiny account server: one approved person, one kept code, bearer-token checked.
-const server = { approved: false, kept: null, calls: [] };
+/** base64url SHA-256, as the site checks a PKCE verifier against its challenge. */
+async function s256(text) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Buffer.from(d).toString('base64url');
+}
+
+// A tiny account server: one person, one kept code, bearer-token checked. `issued`
+// is the one-time code the site handed out, with the challenge and address it is for.
+const server = { issued: null, kept: null, calls: [] };
 globalThis.fetch = async (url, opts) => {
   const path = new URL(url).pathname;
   const body = opts.body ? JSON.parse(opts.body) : null;
   server.calls.push([opts.method, path, body]);
   const reply = (data, status = 200) => ({ status, json: async () => data });
-  if (path === '/api/rw/start') return reply({ user_code: 'AB12-CD34', poll: 'secret', url: 'https://x/link', interval: 0, expires_in: 5 });
-  if (path === '/api/rw/poll') {
-    return server.approved ? reply({ token: 'tok-1', email: 'boss@example.com', name: 'Boss' }) : reply({ pending: true });
+  if (path === '/api/rw/token') {
+    const issued = server.issued;
+    server.issued = null;                                  // a code works once
+    const ok = issued && body.code === issued.code && body.redirect_uri === issued.redirectUri
+      && await s256(body.code_verifier) === issued.challenge;
+    return ok ? reply({ token: 'tok-1', email: 'boss@example.com', name: 'Boss' }) : reply({ error: "That sign-in didn't finish." }, 400);
   }
   if (path === '/api/rw/refresh') return body.token === 'tok-1' ? reply({ token: 'tok-2' }) : reply({ error: 'no' }, 401);
   if (opts.headers.Authorization !== `Bearer ${server.token}`) return reply({ error: 'Not signed in.' }, 401);
@@ -41,45 +52,82 @@ const sync = await import('../js/sync.js');
 /** Start over: signed out, no kept code, a device code of its own. */
 function setUp(deviceCode = 'abcd2345efgh6789jkmn') {
   mem.clear();
-  Object.assign(server, { approved: false, kept: null, calls: [], token: 'tok-1' });
+  Object.assign(server, { issued: null, kept: null, calls: [], token: 'tok-1' });
   sync.setCode(deviceCode);
 }
 
-test('signing in waits for approval, then keeps the token and who it is for', async () => {
+/** What the site does with the address `begin()` sends the person to: hand out a code and send them back. */
+function siteSendsBack(authorizeUrl, code = 'one-time-1') {
+  const q = new URL(authorizeUrl).searchParams;
+  server.issued = { code, challenge: q.get('code_challenge'), redirectUri: q.get('redirect_uri') };
+  return `?${new URLSearchParams({ code, state: q.get('state') })}`;
+}
+
+/** Sign in all the way: off to the site and back. */
+async function signIn() {
+  return account.finish(siteSendsBack(await account.begin()));
+}
+
+test('signing in goes to the site and back, then keeps the token and who it is for', async () => {
   setUp();
-  const started = await account.start();
-  assert.equal(started.user_code, 'AB12-CD34');
+  const url = new URL(await account.begin());
+  assert.equal(url.origin + url.pathname, 'https://sixthdaystudios.com/rw/authorize');
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://rosterwarden.sixthdaystudios.com/');
+  assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(account.current(), null);
-  server.approved = true;
-  assert.deepEqual(await account.waitForApproval(started), { email: 'boss@example.com', name: 'Boss' });
+  const back = siteSendsBack(url.href);
+  assert.ok(account.isReturning(back));
+  assert.deepEqual(await account.finish(back), { email: 'boss@example.com', name: 'Boss' });
   assert.equal(account.current().email, 'boss@example.com');
+  assert.ok(!server.calls.some(([, path]) => path === '/api/rw/poll'), 'no waiting on the site');
   account.signOut();
   assert.equal(account.current(), null);
 });
 
-test('cancelling stops the wait without signing in', async () => {
+test('an ordinary address is not a sign-in coming back', async () => {
   setUp();
-  const started = await account.start();
-  assert.equal(await account.waitForApproval(started, () => true), null);
+  assert.equal(account.isReturning(''), false);
+  assert.equal(account.isReturning('?code=x'), false);
+  assert.equal(await account.finish(''), null);
+});
+
+test('a sign-in this device did not start, or one with the wrong state, is refused', async () => {
+  setUp();
+  await assert.rejects(account.finish('?code=x&state=y'), /wasn't started on this device/);
+  const back = siteSendsBack(await account.begin());
+  await assert.rejects(account.finish(back.replace(/state=[^&]+/, 'state=forged')), /wasn't started/);
+  await assert.rejects(account.finish(back), /wasn't started/, 'the started sign-in is used up by the failed try');
   assert.equal(account.current(), null);
 });
 
-test('an account with no code yet keeps this device\'s, and one with the same code is left alone', async () => {
+test('a sign-in that took too long is refused', async () => {
   setUp();
-  const started = await account.start();
-  server.approved = true;
-  await account.waitForApproval(started);
+  const back = siteSendsBack(await account.begin());
+  const pending = JSON.parse(mem.get('rosterwarden.account.pending'));
+  mem.set('rosterwarden.account.pending', JSON.stringify({ ...pending, until: Date.now() - 1 }));
+  await assert.rejects(account.finish(back), /took too long/);
+});
+
+test('the site refusing the code (wrong verifier) is passed on, and nothing is kept', async () => {
+  setUp();
+  const back = siteSendsBack(await account.begin());
+  server.issued.challenge = 'something-else';
+  await assert.rejects(account.finish(back), /didn't finish/);
+  assert.equal(account.current(), null);
+});
+
+test("an account with no code yet keeps this device's, and one with the same code is left alone", async () => {
+  setUp();
+  await signIn();
   assert.deepEqual(await account.matchCode(), { mode: 'uploaded' });
   assert.equal(server.kept, 'abcd2345efgh6789jkmn');
   assert.deepEqual(await account.matchCode(), { mode: 'same' });
 });
 
-test('an account that keeps another code reports it, and the device\'s can replace it on purpose', async () => {
+test("an account that keeps another code reports it, and the device's can replace it on purpose", async () => {
   setUp();
   server.kept = 'zzzz2345efgh6789jkmn';
-  const started = await account.start();
-  server.approved = true;
-  await account.waitForApproval(started);
+  await signIn();
   assert.deepEqual(await account.matchCode(), { mode: 'differs', code: 'zzzz2345efgh6789jkmn' });
   await assert.rejects(account.keepCode('abcd2345efgh6789jkmn'), /exists/);
   await account.keepCode('abcd2345efgh6789jkmn', true);
@@ -88,27 +136,15 @@ test('an account that keeps another code reports it, and the device\'s can repla
 
 test('a token is refreshed in place, and dropped when the account says no', async () => {
   setUp();
-  const started = await account.start();
-  server.approved = true;
-  await account.waitForApproval(started);
+  await signIn();
   await account.keepFresh();
   assert.equal(JSON.parse(mem.get('rosterwarden.account')).token, 'tok-2');
   await account.keepFresh();               // tok-2 is refused by the stand-in
   assert.equal(account.current(), null);
 });
 
-test('beginning a sign-in sends the code in the address and is finished on return', async () => {
-  setUp();
-  const url = await account.begin();
-  assert.equal(url, 'https://x/link?code=AB12-CD34');
-  assert.ok(account.pending());
-  server.approved = true;
-  assert.equal((await account.resume()).email, 'boss@example.com');
-  assert.equal(account.pending(), null, 'it is only finished once');
-});
-
 test('signing up goes to the registration page and starts nothing waiting', async () => {
   setUp();
   assert.match(await account.begin(true), /\/register$/);
-  assert.equal(account.pending(), null);
+  assert.equal(mem.get('rosterwarden.account.pending'), undefined);
 });

@@ -1,7 +1,7 @@
 /**
  * Signing in to a RosterWarden account, as the screens show it: the Sign in
- * and Sign up buttons (welcome screen and Settings), the code the person
- * approves on sixthdaystudios.com, and what happens to the rosters afterwards.
+ * and Sign up buttons (welcome screen and Settings), the trip to
+ * sixthdaystudios.com and back, and what happens to the rosters afterwards.
  * The account itself is js/account.js.
  */
 import { store } from '../store.js';
@@ -66,14 +66,18 @@ export async function signIn({ signUp = false } = {}, err, done = () => {}) {
 }
 
 /**
- * Called when the app opens: if the person went off to sign in and has come
- * back, finish it, then sort out the sync code. Resolves true if it signed in.
+ * Called when the app opens: if the site has just sent the person back from
+ * signing in (`?code=…&state=…`), finish it, then sort out the sync code.
+ * Resolves true if it signed in.
  */
 export async function resumeSignIn() {
-  if (!account.pending()) return false;
+  const search = location.search;
+  if (!account.isReturning(search)) return false;
+  // The one-time code is spent either way: take it out of the address (and history) straight away.
+  history.replaceState(null, '', location.pathname + location.hash);
   toast('Finishing signing in…');
   try {
-    if (!(await account.resume())) return false;
+    if (!(await account.finish(search))) return false;
     await matchAccount();
     toast(`Signed in as ${account.current().email}`);
     return true;

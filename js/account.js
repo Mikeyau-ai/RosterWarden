@@ -3,18 +3,18 @@
  * Microsoft) that keeps this workplace's sync code, so a new phone gets its
  * rosters back by signing in instead of typing a code.
  *
- * Signing in uses a short code approved on sixthdaystudios.com, so the app
- * never sees a password: `start()` asks for a code, the person approves it on
- * the site, and `waitForApproval()` collects a token. The token is kept here
- * and used to read and keep the sync code (see sixthdaystudios's
+ * Signing in is a standard redirect (authorization code with PKCE), so the
+ * app never sees a password: `begin()` sends the person to sixthdaystudios.com,
+ * which signs them in if needed and sends them straight back here with a
+ * one-time code, and `finish()` swaps that code for a token. The token is kept
+ * here and used to read and keep the sync code (see sixthdaystudios's
  * src/rwaccount.js). The rosters themselves stay encrypted with that code.
  */
 import { ACCOUNT_URL } from './config.js';
 import * as sync from './sync.js';
 
-/** localStorage keys: the signed-in account, and this device's id for sign-in requests. */
+/** localStorage key for the signed-in account. */
 const ACCOUNT_KEY = 'rosterwarden.account';
-const DEVICE_KEY = 'rosterwarden.account.device';
 
 /** Raised for anything the person should read, such as an expired code. */
 export class AccountError extends Error {}
@@ -47,20 +47,6 @@ export function isConfigured() {
   return Boolean(ACCOUNT_URL);
 }
 
-/** A random id for this device's sign-in requests, kept so they can be told apart. */
-function deviceId() {
-  try {
-    let id = localStorage.getItem(DEVICE_KEY);
-    if (!id) {
-      id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-      localStorage.setItem(DEVICE_KEY, id);
-    }
-    return id;
-  } catch {
-    return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-}
-
 /** Call the account server and return `{ status, data }`; a network failure becomes an AccountError. */
 async function call(method, path, body, token = null) {
   let res;
@@ -78,72 +64,76 @@ async function call(method, path, body, token = null) {
   return { status: res.status, data };
 }
 
-/** Ask for a sign-in code: `{ user_code, poll, url, interval, expires_in }`. */
-export async function start() {
-  const { status, data } = await call('POST', '/api/rw/start', { device: deviceId() });
-  if (status !== 200) throw new AccountError(data.error || 'Could not start signing in.');
-  return data;
+/**
+ * localStorage key for a sign-in that has gone off to the site: its state and
+ * PKCE verifier, until the site sends the person back. localStorage rather
+ * than sessionStorage, so it survives a phone handing the site to the browser.
+ */
+const PENDING_KEY = 'rosterwarden.account.pending';
+const PENDING_MINUTES = 15;
+
+/** `n` random bytes as base64url text. */
+function randomText(n) {
+  return base64url(crypto.getRandomValues(new Uint8Array(n)));
 }
 
-/** localStorage key for a sign-in that has gone off to the site and is waiting to come back. */
-const PENDING_KEY = 'rosterwarden.account.pending';
+/** Bytes as base64url (no padding), as PKCE wants. */
+function base64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** The address the site sends the person back to: this page, without its query or #route. */
+function returnAddress() {
+  return location.origin + location.pathname;
+}
 
 /**
- * Begin signing in: ask for a code, remember it for when this page comes back
- * from the site, and return the address to send the person to (the code rides
- * in it, so they never see or type it). `signUp` goes to the sign-up page.
+ * Begin signing in: make a PKCE verifier and state, remember them for when
+ * this page comes back from the site, and return the site's sign-in address
+ * to send the person to. `signUp` goes to the sign-up page instead.
  */
 export async function begin(signUp = false) {
-  // Signing up has no code yet: they make the account, then tap Sign in.
+  // Signing up has nothing to come back with yet: they make the account, then tap Sign in.
   if (signUp) return `${ACCOUNT_URL}/register`;
-  const started = await start();
+  const verifier = randomText(32);
+  const state = randomText(16);
+  const redirectUri = returnAddress();
+  const challenge = base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   try {
-    localStorage.setItem(PENDING_KEY, JSON.stringify({ poll: started.poll, interval: started.interval, until: Date.now() + started.expires_in * 1000 }));
-  } catch { /* private mode: signing in from this page just won't resume */ }
-  return `${started.url}?code=${encodeURIComponent(started.user_code)}`;
-}
-
-/** Whether a sign-in is waiting to be finished (it went to the site and hasn't expired). */
-export function pending() {
-  try {
-    const p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
-    return p && p.until > Date.now() ? p : null;
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ state, verifier, redirectUri, until: Date.now() + PENDING_MINUTES * 60000 }));
   } catch {
-    return null;
+    throw new AccountError('This browser is blocking storage, so signing in can\'t finish. Try a normal (not private) window.');
   }
+  const q = new URLSearchParams({ redirect_uri: redirectUri, state, code_challenge: challenge, code_challenge_method: 'S256' });
+  return `${ACCOUNT_URL}/rw/authorize?${q}`;
+}
+
+/** Whether `search` (a page's `location.search`) is the site sending a sign-in back. */
+export function isReturning(search) {
+  const q = new URLSearchParams(search);
+  return q.has('code') && q.has('state');
 }
 
 /**
- * Finish a sign-in that went to the site: wait for its approval, then forget
- * it. Returns `{ email, name }`, or null if it was never approved in time.
+ * Finish a sign-in the site sent back (`search` is `location.search`): check
+ * it is the one this device started, swap the code for a token and keep it.
+ * Returns `{ email, name }`, or null if this address isn't a sign-in coming back.
  */
-export async function resume() {
-  const p = pending();
-  if (!p) return null;
+export async function finish(search) {
+  if (!isReturning(search)) return null;
+  const q = new URLSearchParams(search);
+  let p = null;
   try {
-    return await waitForApproval({ poll: p.poll, interval: p.interval, expires_in: (p.until - Date.now()) / 1000 });
-  } finally {
-    try { localStorage.removeItem(PENDING_KEY); } catch { /* nothing to do */ }
+    p = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null');
+    localStorage.removeItem(PENDING_KEY);      // used once, whatever happens next
+  } catch { /* nothing kept: treated as not started here */ }
+  if (!p || p.until < Date.now() || p.state !== q.get('state')) {
+    throw new AccountError('That sign-in wasn\'t started on this device, or took too long. Please tap Sign in again.');
   }
-}
-
-/**
- * Wait for the code from `start()` to be approved on the site, then keep the
- * token and return `{ email, name }`. `cancelled()` is checked between polls.
- */
-export async function waitForApproval(started, cancelled = () => false) {
-  const deadline = Date.now() + started.expires_in * 1000;
-  while (Date.now() < deadline && !cancelled()) {
-    await new Promise((r) => setTimeout(r, started.interval * 1000));
-    if (cancelled()) break;
-    const { status, data } = await call('POST', '/api/rw/poll', { poll: started.poll });
-    if (data.token) {
-      store({ token: data.token, email: data.email, name: data.name });
-      return { email: data.email, name: data.name };
-    }
-    if (status !== 200) throw new AccountError(data.error || 'That sign-in did not work.');
-  }
-  return null;
+  const { status, data } = await call('POST', '/api/rw/token', { code: q.get('code'), code_verifier: p.verifier, redirect_uri: p.redirectUri });
+  if (status !== 200 || !data.token) throw new AccountError(data.error || 'That sign-in did not work.');
+  store({ token: data.token, email: data.email, name: data.name });
+  return { email: data.email, name: data.name };
 }
 
 /** Sign out of this device (the sync code stays, so sync keeps working). */
