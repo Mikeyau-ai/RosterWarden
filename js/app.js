@@ -90,7 +90,11 @@ function welcome() {
   return el('form', { className: 'card', onsubmit: create }, [
     staffKey ? el('div', { className: 'notice' }, [
       el('strong', { textContent: 'Looking for your shifts?' }),
-      el('a', { className: 'btn btn-sm', textContent: 'Open my staff page', href: `${location.pathname}#staff=${staffKey}`, style: 'margin-top:.5rem' }),
+      el('a', {
+        className: 'btn btn-sm', textContent: 'Open my staff page', href: `${location.pathname}#staff=${staffKey}`, style: 'margin-top:.5rem',
+        // Back to being staff: opening the app from its icon shows their page again.
+        onclick: () => { try { localStorage.removeItem(staffPage.OWNER_MODE_KEY); } catch { /* fine */ } },
+      }),
     ]) : null,
     el('h2', { textContent: 'Welcome to RosterWarden' }),
     el('p', { className: 'muted' }, [
@@ -297,6 +301,11 @@ function rememberedLink() {
   try { return localStorage.getItem(staffPage.STORED_KEY); } catch { return null; }
 }
 
+/** Whether this phone's staff member chose to use the app for their own rosters (see OWNER_MODE_KEY). */
+function prefersOwner() {
+  try { return Boolean(localStorage.getItem(staffPage.OWNER_MODE_KEY)); } catch { return false; }
+}
+
 /** Wire everything up and show the first screen. */
 function init() {
   const linkKey = keyFromHash(location.hash);
@@ -304,10 +313,10 @@ function init() {
 
   store.load();
 
-  // A staff member reopening the installed app (no hash) comes back to their page,
-  // as long as this phone isn't also someone's roster, or signed in to (or just back from signing in to) an account.
+  // A staff member reopening the installed app (no hash) comes back to their page, as long as this phone isn't
+  // also someone's roster, signed in to (or just back from signing in to) an account, or chosen for their own rosters.
   if (!location.hash && store.orgs().length === 0 && !account.current() && !account.isReturning(location.search)
-    && rememberedLink()) { startStaffPage(rememberedLink()); return; }
+    && !prefersOwner() && rememberedLink()) { startStaffPage(rememberedLink()); return; }
 
   // Sync is on unless the user has turned it off. Enabling it uploads what is
   // already here rather than replacing it, so switching on never costs anyone

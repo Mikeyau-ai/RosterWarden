@@ -18,6 +18,13 @@ import { boxesFor, readBox, writeBox, LinkReplaced, maskEmail, maskMobile } from
 /** Where this phone remembers its link, so reopening the app comes back here. */
 export const STORED_KEY = 'rosterwarden.staff.key';
 
+/**
+ * Set when someone with a staff link chose "Use RosterWarden for my own rosters", so opening the app (from
+ * its icon, with no link) shows the owner's screens rather than their staff page. Cleared when they go back
+ * to their staff page from the welcome screen.
+ */
+export const OWNER_MODE_KEY = 'rosterwarden.staff.ownerMode';
+
 /** "Sun 1 Nov" for an ISO date. */
 function shortDate(iso) {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
@@ -368,6 +375,14 @@ export async function render(container, key) {
     save,
     status,
     el('p', { className: 'faint', textContent: 'Only you and whoever does the roster can see this. Keep this link to yourself.' }),
+    // Someone who also does rosters of their own: open the owner's app, and keep opening it from the home-screen icon.
+    el('button', {
+      className: 'btn btn-block', textContent: 'Use RosterWarden for my own rosters',
+      onclick: () => {
+        try { localStorage.setItem(OWNER_MODE_KEY, '1'); } catch { /* private mode: just this once */ }
+        location.href = `${location.pathname}#roster`;
+      },
+    }),
     // Just an exit: browsers only let a page close itself if it opened the tab, so otherwise say it can be closed.
     el('button', {
       className: 'btn btn-ghost btn-block', textContent: 'Close this page',
