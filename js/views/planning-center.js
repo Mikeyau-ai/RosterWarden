@@ -9,6 +9,7 @@
 import { store } from '../store.js';
 import { todayISO, formatDate, rosterShiftList } from '../scheduler.js';
 import * as pco from '../sources/planning-center.js';
+import * as staff from '../staff.js';
 import { el, fill, toast, confirmDialog, dialog } from '../ui.js';
 
 /** Tag on away dates imported from Planning Center, so a refresh can replace them. */
@@ -184,6 +185,7 @@ async function updateFromTeam(org, link, progress) {
   const linkedPeople = [];
   for (const m of members) {
     let person = byPco.get(m.id);
+    let isNew = false;
     if (!person) {
       // Someone of the same name not yet linked to anyone is taken to be them;
       // otherwise (no match, or the name already belongs to a different
@@ -195,8 +197,10 @@ async function updateFromTeam(org, link, progress) {
       } else {
         person = store.addPerson(m.name);
         added += 1;
+        isNew = true;
       }
       store.updatePerson(person.id, { pcoId: m.id });
+      if (isNew) staff.autoLink(person);
     }
     linkedPeople.push(person);
   }

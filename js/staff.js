@@ -17,6 +17,9 @@ import { todayISO, toDays, fromDays, formatDate, auditRoster, shiftOn } from './
 import { shiftTimes } from './export.js';
 import { responseKey } from './sources/planning-center.js';
 
+/** How long, in days, the Updates log keeps an entry. */
+const ACTIVITY_DAYS = 90;
+
 /** Tag on away dates that came from a person's own link. */
 export const SOURCE = 'staff';
 
@@ -39,6 +42,54 @@ function patchLink(personId, patch) {
   if (person) store.updatePerson(personId, { staffLink: { ...person.staffLink, ...patch } });
 }
 
+// -------------------------------------------------------------- activity --
+/*
+ * Everything a staff member sends is also written to `store.data.activity`, a
+ * log the owner can review on the Roster screen after the toast has gone.
+ * Entries are `{ id, orgId, at, personId, kind, text, seen, ...where }` where
+ * `kind` is reply, dates, note, swap or profile, and `where` says what the
+ * entry is about (rosterId, date, shiftId, roleId) so it can be opened.
+ */
+
+/** Record something a person did. `where` is optional detail about the roster place. */
+function logActivity(person, kind, text, where = {}) {
+  store.data.activity.push({
+    id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    orgId: person.orgId, at: new Date().toISOString(), personId: person.id, kind, text, ...where, seen: false,
+  });
+}
+
+/** Entries older than the log keeps are dropped. */
+function pruneActivity() {
+  const cutoff = new Date(Date.now() - ACTIVITY_DAYS * 86400000).toISOString();
+  store.data.activity = store.data.activity.filter((a) => a.at >= cutoff);
+}
+
+/** The current organisation's log, newest first. */
+export function activityLog() {
+  return store.data.activity
+    .filter((a) => a.orgId === store.data.currentOrgId)
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** How many entries in the current organisation's log have not been seen. */
+export function unseenCount() {
+  return activityLog().filter((a) => !a.seen).length;
+}
+
+/** Mark entries seen: the given ids, or (with none) all in the current organisation. */
+export function markSeen(ids = null) {
+  for (const a of activityLog()) if (!ids || ids.includes(a.id)) a.seen = true;
+  store.save();
+}
+
+/** "8 Nov, 15 Nov and 22 Nov" for some ISO dates (the first three, then a count). */
+function listDates(dates) {
+  const shown = dates.slice(0, 3).map((d) => formatDate(d, { withWeekday: false }));
+  if (dates.length > 3) shown.push(`${dates.length - 3} more`);
+  return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}` : shown[0];
+}
+
 /** The dates a person entered through their link, sorted. */
 export function staffDates(person) {
   const out = [];
@@ -56,15 +107,33 @@ function nextDay(iso) {
   return d.toISOString().slice(0, 10);
 }
 
+/** A link key no one else already holds (a clash is astronomically unlikely, but costs nothing to rule out). */
+function uniqueLinkKey() {
+  const taken = new Set(store.data.people.map((p) => p.staffLink?.key).filter(Boolean));
+  let key = link.newLinkKey();
+  while (taken.has(key)) key = link.newLinkKey();
+  return key;
+}
+
 /** Give a person a link and put their name and shifts on it. */
 export async function createLink(personId) {
   store.updatePerson(personId, {
     staffLink: {
-      key: link.newLinkKey(), sentAt: null, sentVia: null, lastFromStaff: null, note: '', outHash: null,
+      key: uniqueLinkKey(), sentAt: null, sentVia: null, lastFromStaff: null, note: '', outHash: null,
       profileSeen: null, profileSuggestion: null,
     },
   });
   try { await publish([personId]); } catch { /* published on the next sync instead */ }
+}
+
+/**
+ * Give a newly added person a link straight away, unless they have one. The
+ * key is made at once and works offline; their page is published in the
+ * background, or on the next sync if that fails.
+ */
+export function autoLink(person) {
+  if (!person || hasLink(person)) return;
+  createLink(person.id).catch(() => { /* published on the next sync instead */ });
 }
 
 /** Record that the link was sent, and how (email, text, share, copy). */
@@ -83,7 +152,7 @@ export async function replaceLink(personId) {
   const { inId, outId } = await link.boxesFor(person.staffLink.key);
   await link.replaceBox(inId);
   await link.replaceBox(outId);
-  patchLink(personId, { key: link.newLinkKey(), sentAt: null, sentVia: null, outHash: null });
+  patchLink(personId, { key: uniqueLinkKey(), sentAt: null, sentVia: null, outHash: null });
   try { await publish([personId]); } catch { /* published on the next sync instead */ }
 }
 
@@ -113,6 +182,7 @@ export async function collect(ids = null) {
   const cutoff = fromDays(toDays(todayISO()) - 30);
   store.data.swaps = store.data.swaps.filter((w) => w.date >= cutoff);
 
+  pruneActivity();
   const changed = [];
   for (const p of people) {
     const box = boxes.get(keys.get(p.id).inId);
@@ -121,12 +191,31 @@ export async function collect(ids = null) {
     takeSwaps(p, box.value);
     takeReplies(p, box.value);
     takeProfile(p, box.value);
+    const before = staffDates(p);
     const dates = cleanDates(box.value?.awayDates);
     store.replaceSourcedBlackouts(p.id, SOURCE, dates.map((d) => ({ start: d, end: d, reason: 'from their link' })));
-    patchLink(p.id, { lastFromStaff: box.updatedAt, note: String(box.value?.note || '').slice(0, NOTE_MAX) });
+    const note = String(box.value?.note || '').slice(0, NOTE_MAX);
+    logDateChanges(p, before, dates, p.staffLink.note, note);
+    patchLink(p.id, { lastFromStaff: box.updatedAt, note });
     changed.push(store.data.people.find((x) => x.id === p.id));
   }
   return changed;
+}
+
+/** Log the dates a person added or removed, whether any now clash with a saved roster, and a changed note. */
+function logDateChanges(person, before, after, oldNote, note) {
+  const first = person.name.split(' ')[0];
+  const added = after.filter((d) => !before.includes(d));
+  const removed = before.filter((d) => !after.includes(d));
+  if (added.length) {
+    const fresh = store.data.people.find((x) => x.id === person.id);
+    const clash = clashes([fresh]).find((c) => added.includes(c.date));
+    logActivity(person, 'dates',
+      `${first} can't work ${listDates(added)}${clash ? ` · clashes with ${clash.roster}` : ''}`,
+      clash ? { rosterId: clash.rosterId, date: clash.date } : {});
+  }
+  if (removed.length) logActivity(person, 'dates', `${first} can work ${listDates(removed)} again`);
+  if (note && note !== oldNote) logActivity(person, 'note', `${first} left a note: "${note.length > 120 ? `${note.slice(0, 120)}…` : note}"`);
 }
 
 /** Longest name, email and mobile a staff member can send, in characters. */
@@ -167,7 +256,10 @@ function takeProfile(person, value) {
 
   if (Object.keys(patch).length) store.updatePerson(person.id, patch);
   patchLink(person.id, { profileSeen: seen, profileSuggestion: suggest });
-  if (Object.keys(patch).length || suggest) swapNews.push(`${person.name.split(' ')[0]} updated their details`);
+  if (Object.keys(patch).length || suggest) {
+    const text = `${person.name.split(' ')[0]} updated their details`;
+    news(person, 'profile', text);
+  }
 }
 
 /** Accept (or dismiss) the new name a person suggested from their link. */
@@ -261,7 +353,7 @@ export function clashes(people) {
     for (const r of store.data.rosters) {
       if (r.draft || r.orgId !== p.orgId) continue;
       for (const a of r.assignments) {
-        if (a.personId === p.id && a.date >= today && away(a.date)) out.push({ person: p, date: a.date, roster: r.name });
+        if (a.personId === p.id && a.date >= today && away(a.date)) out.push({ person: p, date: a.date, roster: r.name, rosterId: r.id });
       }
     }
   }
@@ -322,6 +414,12 @@ export function setSwapMode(orgId, mode) {
     for (const w of store.data.swaps) if (w.orgId === orgId && w.status === 'asked') decide(w, 'cancelled');
   }
   store.updateOrg(orgId, { swapMode: mode });
+}
+
+/** Tell the owner something a person did: in the next toast, and in the log. */
+function news(person, kind, text, where = {}) {
+  swapNews.push(text);
+  logActivity(person, kind, text, where);
 }
 
 /** Hand back, and forget, what happened with swaps since last asked. */
@@ -427,7 +525,8 @@ function takeSwaps(person, value) {
         date: place.date, shiftId: place.shiftId, roleId: place.roleId ?? null,
         fromId: person.id, toId: to.id, status: 'asked', askedAt: new Date().toISOString(), decidedAt: null,
       });
-      swapNews.push(`${person.name.split(' ')[0]} asked ${to.name.split(' ')[0]} to take their ${formatDate(place.date, { withWeekday: false })} shift`);
+      news(person, 'swap', `${person.name.split(' ')[0]} asked ${to.name.split(' ')[0]} to take their ${formatDate(place.date, { withWeekday: false })} shift`,
+        { rosterId: roster.id, date: place.date });
     }
     // An ask no longer in their list was withdrawn.
     for (const w of store.data.swaps) {
@@ -439,14 +538,16 @@ function takeSwaps(person, value) {
     const swap = store.data.swaps.find((w) => w.id === answer?.id && w.toId === person.id && w.status === 'asked');
     if (!swap || mode === 'off') continue;
     const taker = nameOf(swap.toId).split(' ')[0];
+    const where = { rosterId: swap.rosterId, date: swap.date };
     if (answer.accept !== true) {
       decide(swap, 'declined');
+      logActivity(person, 'swap', `${taker} said no to ${swapLabel(swap)}`, where);
     } else if (mode === 'approval') {
       decide(swap, 'accepted');
-      swapNews.push(`${taker} agreed to take ${swapLabel(swap)}: approve it on Roster`);
+      news(person, 'swap', `${taker} agreed to take ${swapLabel(swap)}: approve it on Roster`, where);
     } else if (handOver(swap)) {
       decide(swap, 'done');
-      swapNews.push(`${taker} took ${swapLabel(swap)}`);
+      news(person, 'swap', `${taker} took ${swapLabel(swap)}`, where);
     } else {
       decide(swap, 'cancelled');
     }
@@ -474,7 +575,8 @@ function takeReplies(person, value) {
     if (roster.responses?.[key] === code) continue;
     store.updateRoster(roster.id, { responses: { ...roster.responses, [key]: code } });
     const { shift } = describePlace(place, roster);
-    swapNews.push(`${person.name.split(' ')[0]} ${r.yes ? 'can do' : 'can\'t do'} ${formatDate(place.date, { withWeekday: false })} ${shift}`);
+    news(person, 'reply', `${person.name.split(' ')[0]} ${r.yes ? 'can do' : 'can\'t do'} ${formatDate(place.date, { withWeekday: false })} ${shift}`,
+      { rosterId: roster.id, date: place.date, shiftId: place.shiftId, roleId: place.roleId ?? null, yes: r.yes });
   }
 }
 

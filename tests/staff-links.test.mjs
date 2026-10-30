@@ -202,3 +202,37 @@ test('their current details are published on their page', async () => {
   assert.deepEqual(page.value.profile, { name: 'Sam Jones', email: 'sam@example.com', mobile: '0400 000 000' });
   assert.equal(page.value.pco, false);
 });
+
+const named = (n) => store.people().find((p) => p.name === n);
+
+test('a new person is given a link automatically, with a key no one else has', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const ann = store.addPerson('Ann Lee');
+  staff.autoLink(ann);
+  await new Promise((r) => setTimeout(r, 50));   // the page is published in the background
+  const key = named('Ann Lee').staffLink.key;
+  assert.ok(key);
+  assert.notEqual(key, named('Sam Jones').staffLink.key);
+  staff.autoLink(named('Ann Lee'));              // already has one: unchanged
+  assert.equal(named('Ann Lee').staffLink.key, key);
+  const { outId, cryptoKey } = await link.boxesFor(key);
+  assert.equal((await link.readBox(outId, cryptoKey)).value.name, 'Ann Lee');
+});
+
+test('a link key that is already taken is never reused', async () => {
+  const sam = setUp();
+  await staff.createLink(sam.id);
+  const taken = named('Sam Jones').staffLink.key;
+  // Make the next key come out identical to Sam's (once), as a freak collision would.
+  const bytes = Uint8Array.from(Buffer.from(taken.replace(/-/g, '+').replace(/_/g, '/') + '=', 'base64'));
+  const real = crypto.getRandomValues.bind(crypto);
+  let forced = true;
+  crypto.getRandomValues = (arr) => { if (forced && arr.length === 32) { forced = false; arr.set(bytes); return arr; } return real(arr); };
+  try {
+    const ann = store.addPerson('Ann Lee');
+    await staff.createLink(ann.id);
+  } finally { crypto.getRandomValues = real; }
+  assert.equal(forced, false, 'the collision was really forced');
+  assert.notEqual(named('Ann Lee').staffLink.key, taken);
+});

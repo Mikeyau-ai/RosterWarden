@@ -98,8 +98,10 @@ up on backing vocals. Roles belong to the workplace, so "Guitar" on the 9am and
 ### After building
 
 A roster you just built and one from months ago open on the same screen and
-can do the same things. **Share / export** and **Edit** sit right under the
-name; tap the name to rename it.
+can do the same things. **← Rosters**, **Edit** and **Send** are in a bar pinned
+at the foot of the screen (**Edit** reads **Done** while editing, and says
+"Saved": changes already save as you go). **Undo** and **Rebuild** sit under the
+name, **Next one** and **Delete** below the days; tap the name to rename it.
 
 - **Things to check** (folded until opened) lists what couldn't be done.
   **Fill the gaps** turns "Drums: short on 2 days" into a picker of who else
@@ -118,7 +120,7 @@ name; tap the name to rename it.
   A hand-made change is locked (🔒), and **Rebuild around locked** keeps it while
   refilling the rest (a rebuild leaves the roster's own old turns out of the
   fairness count). **Undo** steps back through edits, swaps and rebuilds.
-- **Share / export**: a group message, each person's shifts, **Message each
+- **Send**: a group message, each person's shifts, **Message each
   person** (their own dates, with Text and Email buttons when you've saved their
   mobile or email), print or PDF, a calendar file, a spreadsheet, and Planning
   Center (below).
@@ -136,7 +138,10 @@ can't").
 
 ### Staff availability links
 
-Each person can get a private link to tell you the dates they can't work, with
+A new person (added by hand, in bulk, from Planning Center or the setup
+wizard) is given a link automatically, with a key checked against everyone
+else's; **Create link** is only needed for people added before this. Each
+person can get a private link to tell you the dates they can't work, with
 no login. On their page: **Create link**, then **Email**, **Text**, **Share** or
 **Copy** sends it from your own phone, and RosterWarden notes when and how it was
 sent. The link opens a page with just their name, their upcoming shifts, a
@@ -168,6 +173,16 @@ The key is in the link after the `#`, which browsers never send to a server.
 What they enter, and the name and shifts on their page, are encrypted with it
 and stored in two small mailboxes on the sync worker, which can't read them.
 Your copy of each key lives in your own (encrypted) data.
+
+### Updates from staff
+
+Everything staff send is also written to `store.data.activity` (kept 90 days,
+synced and backed up with the rest): replies to shifts, dates added or removed
+(saying if one clashes with a saved roster), notes, swap asks and answers, and
+changed details. The Roster screen's **Updates** button shows the unseen count
+and opens a sheet, newest first by day, with **Open roster**, **Replace** for a
+"can't do" still on its roster, and **Mark all seen**. The toast that announces
+new news has a **See all** link to the same sheet.
 
 ### Shift swaps
 
@@ -249,7 +264,7 @@ person's own Planning Center login (OAuth). Then:
   is ticked for the positions Planning Center has them down for.
 - **Send each shift as**: the team position each shift fills (e.g. Cafe →
   Barista). A role can have its own position, which wins over its shift's.
-- **Share / export → Planning Center → Send…**: first reads Planning Center and
+- **Send → Planning Center → Send…**: first reads Planning Center and
   shows what would happen (how many go into how many plans, who's already there,
   who isn't on the team, shifts with no position, dates with no plan), then asks
   whether to notify. Everyone is added as **Unconfirmed**, with notifications

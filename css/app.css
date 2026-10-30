@@ -528,6 +528,11 @@ pre.roster-text {
   transition: opacity .18s ease, transform .18s ease;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.has-action { pointer-events: auto; }
+.toast-action {
+  margin-left: .4rem; padding: 0; background: none; border: 0;
+  color: inherit; font: inherit; font-weight: 600; text-decoration: underline;
+}
 
 .modal {
   width: min(30rem, calc(100vw - 1.5rem));

@@ -8,6 +8,7 @@
  * behind, and the store sees one complete workplace rather than a trickle.
  */
 import { store } from './store.js';
+import * as staff from './staff.js';
 
 /**
  * The starting points offered when a workplace is made. Each is a list of
@@ -129,6 +130,7 @@ export function applySetup(draft) {
   for (const p of draft.people || []) {
     if (!p.name?.trim()) continue;
     const person = store.addPerson(p.name, p.weekdays ?? undefined);
+    staff.autoLink(person);
     const roleIds = (p.roleNames || [])
       .map((n) => roleIdByName.get(n.trim().toLowerCase()))
       .filter((id) => id != null);

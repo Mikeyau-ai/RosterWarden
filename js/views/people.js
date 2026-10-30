@@ -74,6 +74,7 @@ function renderList(container) {
       const name = await promptText('New person', "What's their name?");
       if (!name) return;
       const person = store.addPerson(name);
+      staff.autoLink(person);
       editingId = person.id;
       render(container);
     },
@@ -313,6 +314,7 @@ function bulkAddDialog() {
 
     addBtn.addEventListener('click', () => {
       const created = toAdd.map((e) => store.addPerson(e.name, e.weekdays ?? undefined));
+      created.forEach(staff.autoLink);
       toast(`${created.length} added`);
       close(created);
     });

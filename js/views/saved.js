@@ -8,7 +8,7 @@
  */
 import { store } from '../store.js';
 import { formatDate, auditRoster, buildRoster, rosterDates, rollOn } from '../scheduler.js';
-import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet } from '../ui.js';
+import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet, closeSheet } from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
@@ -18,6 +18,7 @@ import * as builderView from './roster.js';
 import * as teamView from './team.js';
 import * as sync from '../sync.js';
 import * as staff from '../staff.js';
+import { openUpdates } from './updates.js';
 
 // Id of the saved roster currently open, or null when showing the list.
 let openId = null;
@@ -58,8 +59,25 @@ export function render(container) {
   } else {
     openId = null;
     editing = false;
-    fill(container, [...backupNudge(), swapsCard(null, () => render(container)), ...renderList(rosters, container)]);
+    fill(container, [...backupNudge(), updatesButton(), swapsCard(null, () => render(container)), ...renderList(rosters, container)]);
   }
+}
+
+/** Open the Updates sheet from anywhere; choosing a roster there goes straight to it. */
+export function showUpdates() {
+  openUpdates({
+    openRoster: (id) => { closeSheet(); openRoster(id); show('roster'); },
+    onClose: () => show('roster'),
+  });
+}
+
+/** The Updates button with its unseen count, or null while the log is empty. */
+function updatesButton() {
+  if (staff.activityLog().length === 0) return null;
+  const n = staff.unseenCount();
+  return el('div', { className: 'row' }, [el('button', {
+    className: n ? 'btn btn-primary' : 'btn', textContent: n ? `Updates (${n})` : 'Updates', onclick: showUpdates,
+  })]);
 }
 
 /**
@@ -221,7 +239,7 @@ function renderOpen(roster, container) {
   const redraw = () => render(container);
 
   const back = el('button', {
-    className: 'btn btn-ghost', textContent: '← Rosters',
+    className: 'btn', textContent: '← Rosters',
     onclick: () => { openId = null; redraw(); },
   });
 
@@ -280,18 +298,9 @@ function renderOpen(roster, container) {
     ? editableDayCards(roster, people, shifts, change, (day) => openDayShifts(rosterDaySource(roster.id, changeDays), day, redraw))
     : dayCards(roster, people, shifts, change);
 
-  // The everyday actions sit right under the title, so sharing or fixing a
-  // roster never means scrolling past it. Rarer ones wait at the foot.
+  // Fixing a roster sits right under the title. The main actions (leave, Edit,
+  // Send) are in the bar pinned at the foot, and rarer ones wait below the days.
   const actions = [
-    exportButton(roster, people, shifts, (replies) => {
-      // Merged, so answers staff gave on their own link aren't wiped by a check.
-      store.updateRoster(roster.id, { responses: { ...roster.responses, ...replies } });
-      redraw();
-    }),
-    el('button', {
-      className: 'btn', textContent: editing ? 'Done editing' : 'Edit',
-      onclick: () => { editing = !editing; redraw(); },
-    }),
     undo.id === roster.id && undo.stack.length ? el('button', {
       className: 'btn', textContent: 'Undo',
       onclick: () => {
@@ -330,12 +339,27 @@ function renderOpen(roster, container) {
     }),
   ];
 
+  // Changes save as you go, so Done only leaves edit mode and says so.
+  const bar = el('div', { className: 'build-bar action-bar' }, [
+    el('div', { className: 'build-actions' }, [
+      back,
+      el('button', {
+        className: 'btn', textContent: editing ? 'Done' : 'Edit',
+        onclick: () => { if (editing) toast('Saved'); editing = !editing; redraw(); },
+      }),
+      exportButton(roster, people, shifts, (replies) => {
+        // Merged, so answers staff gave on their own link aren't wiped by a check.
+        store.updateRoster(roster.id, { responses: { ...roster.responses, ...replies } });
+        redraw();
+      }),
+    ]),
+  ]);
+
   return [
-    back,
     el('button', {
       type: 'button', className: 'title-btn', onclick: rename, 'aria-label': `Rename ${roster.name}`,
     }, [el('h2', { textContent: roster.name }), el('span', { className: 'faint', textContent: '✎', 'aria-hidden': 'true' })]),
-    el('div', { className: 'row' }, actions),
+    actions.some(Boolean) ? el('div', { className: 'row' }, actions) : null,
     editing ? null : swapsCard(roster.id, redraw),
     roster.byHand && editing ? el('div', { className: 'notice' }, [
       el('strong', { textContent: 'Filling in by hand' }),
@@ -351,5 +375,6 @@ function renderOpen(roster, container) {
     ...cards,
     tally(roster, people, shifts),
     el('div', { className: 'row' }, footer),
+    bar,
   ];
 }
