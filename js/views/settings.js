@@ -21,6 +21,7 @@ import * as sync from '../sync.js';
 import * as staff from '../staff.js';
 import * as account from '../account.js';
 import { accountCard } from './account.js';
+import { STORED_KEY as STAFF_LINK_KEY } from './staff.js';
 
 /**
  * Which sub-screen is open, or null for the menu.
@@ -692,6 +693,8 @@ function renderAboutCard() {
       );
       if (!ok) return;
       store.reset();
+      // A staff link this phone opened is forgotten too, so the welcome screen stops offering "Open my staff page".
+      try { localStorage.removeItem(STAFF_LINK_KEY); } catch { /* private mode: nothing kept */ }
       refreshOrgs();
       show('roster');
       toast('All data deleted');

@@ -6,7 +6,7 @@
  */
 import { store } from '../store.js';
 import { el, toast, dialog, confirmDialog } from '../ui.js';
-import { refreshOrgs, show } from '../app.js';
+import { refreshOrgs, refreshAccount, show } from '../app.js';
 import * as account from '../account.js';
 import * as sync from '../sync.js';
 
@@ -120,6 +120,7 @@ export function accountCard(redraw) {
           const ok = await confirmDialog('Sign out?', 'Your rosters stay on this device and keep syncing. Sign in again any time.', 'Sign out');
           if (!ok) return;
           account.signOut();
+          refreshAccount();
           redraw();
         },
       }),
