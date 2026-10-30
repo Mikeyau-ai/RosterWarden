@@ -88,6 +88,11 @@ p  { margin: 0 0 .75rem; }
   text-transform: uppercase; color: var(--accent);
   text-shadow: 0 0 10px rgba(44,196,168,.45);
 }
+/* Phones: ROSTER over WARDEN, so the bar has room for the workplace and who is signed in. */
+.brand-name > span { display: block; line-height: 1.05; }
+@media (min-width: 46rem) {
+  .brand-name > span { display: inline; line-height: inherit; }
+}
 
 .org-switch { margin-left: auto; min-width: 0; }
 .org-switch select {
