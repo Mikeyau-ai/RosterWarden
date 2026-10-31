@@ -7,8 +7,10 @@
  * side-by-side layout on a phone.
  */
 import { store } from '../store.js';
-import { formatDate, auditRoster, buildRoster, rosterDates, rollOn } from '../scheduler.js';
-import { el, fill, toast, confirmDialog, emptyState, promptText, openSheet, closeSheet } from '../ui.js';
+import { formatDate, auditRoster, buildRoster, rosterDates, rollOn, usualDayShifts } from '../scheduler.js';
+import {
+  el, fill, toast, confirmDialog, emptyState, promptText, openSheet, closeSheet, monthGrid, collapsible,
+} from '../ui.js';
 import {
   editableDayCards, dayCards, tally, notesBox, declinedCard, exportButton, gapFixes,
 } from './roster-parts.js';
@@ -127,10 +129,24 @@ function swapsCard(rosterId, redraw) {
   ]);
 }
 
-/** Build the list of saved rosters and drafts, most recent first. */
+/**
+ * Build the list of saved rosters and drafts, by the dates they cover: newest
+ * first, or oldest first when that is the setting chosen. Drafts with no dates
+ * yet go last either way.
+ */
 function renderList(rosters, container) {
-  const items = rosters.map((r) => (r.draft ? draftRow(r) : savedRow(r, container)));
-  return [el('div', { className: 'list' }, items)];
+  const order = store.setting('rosterSort') === 'oldest' ? 'oldest' : 'newest';
+  const sorted = [...rosters].sort((a, b) => {
+    if (!a.startDate || !b.startDate) return (a.startDate ? 0 : 1) - (b.startDate ? 0 : 1);
+    return order === 'oldest' ? a.startDate.localeCompare(b.startDate) : b.startDate.localeCompare(a.startDate);
+  });
+  const sort = el('select', { 'aria-label': 'Sort rosters' }, [
+    el('option', { value: 'newest', textContent: 'Newest first', selected: order === 'newest' }),
+    el('option', { value: 'oldest', textContent: 'Oldest first', selected: order === 'oldest' }),
+  ]);
+  sort.addEventListener('change', () => { store.setSetting('rosterSort', sort.value); render(container); });
+  const items = sorted.map((r) => (r.draft ? draftRow(r) : savedRow(r, container)));
+  return [el('div', { className: 'spread' }, [el('strong', { textContent: 'Rosters' }), sort]), el('div', { className: 'list' }, items)];
 }
 
 /** A row for a saved roster: opens the read-only day-by-day view. */
@@ -199,8 +215,30 @@ function refill(roster) {
   return { assignments: fresh.assignments, notes: fresh.notes };
 }
 
-// Earlier assignments and day shifts of the open roster, newest last, for Undo.
+// Earlier assignments, day shifts and days of the open roster, newest last, for Undo.
 const undo = { id: null, stack: [] };
+
+// The last date tapped on the edit screen's days calendar, so the redraw after
+// a tap stays on that month rather than jumping back to the roster's first:
+// `{ id, date }`, used only while that roster is the one open.
+let daysGridAt = null;
+
+/**
+ * Edit mode's "Days on this roster": a month calendar with the roster's dates
+ * marked. `onTap(date)` adds or takes off the date tapped.
+ */
+function daysEditor(roster, onTap) {
+  const days = new Set(rosterDates(roster));
+  const start = daysGridAt?.id === roster.id ? daysGridAt.date : [...days].sort()[0];
+  const grid = monthGrid({
+    start, openDays: store.openDays(), onTap,
+    classOf: (iso) => (days.has(iso) ? 'range-edge' : ''),
+  });
+  return collapsible('roster-days', 'Days on this roster', [
+    el('div', { className: 'faint', textContent: 'Tap a date to add it to this roster, or tap a marked one to take it off.' }),
+    grid.node,
+  ], { open: false });
+}
 
 /** Build the full day-by-day view of one roster, plus everything you can do with it. */
 function renderOpen(roster, container) {
@@ -217,7 +255,40 @@ function renderOpen(roster, container) {
   const remember = () => {
     if (undo.id !== roster.id) { undo.id = roster.id; undo.stack = []; }
     const now = store.roster(roster.id);
-    undo.stack.push({ assignments: now.assignments, dayShifts: now.dayShifts });
+    undo.stack.push({ assignments: now.assignments, dayShifts: now.dayShifts, days: now.days });
+  };
+
+  /**
+   * Add `date` to the roster with the usual shifts that run that weekday, or
+   * take it off along with anyone placed on it (Undo puts them back).
+   */
+  const toggleDay = (date) => {
+    const current = store.roster(roster.id);
+    const had = rosterDates(current);
+    const on = had.includes(date);
+    if (on && had.length === 1) {
+      toast('A roster needs at least one day. Delete it instead.');
+      return;
+    }
+    remember();
+    daysGridAt = { id: roster.id, date };
+    const days = on ? had.filter((d) => d !== date) : [...had, date].sort();
+    const assignments = current.assignments.filter((a) => !on || a.date !== date);
+    // A roster without its own day lists (older ones) runs the usual shifts anyway.
+    const dayShifts = current.dayShifts ? { ...current.dayShifts } : undefined;
+    if (dayShifts && on) delete dayShifts[date];
+    if (dayShifts && !on) dayShifts[date] = usualDayShifts(store.shifts(), [date])[date];
+    // Counted before saving: updateRoster changes `current` in place.
+    const dropped = current.assignments.length - assignments.length;
+    const next = { ...current, days, dayShifts, assignments, startDate: days[0], endDate: days[days.length - 1] };
+    store.updateRoster(roster.id, {
+      days, dayShifts, assignments, startDate: next.startDate, endDate: next.endDate,
+      notes: auditRoster(next, store.people(), store.shifts(), store.roles()),
+    });
+    toast(on
+      ? `Took off ${formatDate(date)}${dropped ? ` and ${dropped} place${dropped === 1 ? '' : 's'}` : ''}`
+      : `Added ${formatDate(date)}`);
+    redraw();
   };
 
   /** Save a changed list of assignments (an edit or a swap) with its notes re-checked. */
@@ -275,8 +346,10 @@ function renderOpen(roster, container) {
       className: 'btn', textContent: 'Undo',
       onclick: () => {
         const prev = undo.stack.pop();
+        const days = prev.days?.length ? prev.days : rosterDates({ ...roster, ...prev });
         store.updateRoster(roster.id, {
           assignments: prev.assignments, dayShifts: prev.dayShifts,
+          days: prev.days, startDate: days[0], endDate: days[days.length - 1],
           notes: auditRoster({ ...roster, ...prev }, store.people(), store.shifts(), store.roles()),
         });
         redraw();
@@ -338,6 +411,7 @@ function renderOpen(roster, container) {
           + '“Fill the rest for me” keeps who you placed and fills the gaps fairly.',
       }),
     ]) : null,
+    editing ? daysEditor(roster, toggleDay) : null,
     // Checked afresh each time, so a date someone sent since it was saved shows here.
     notesBox({ ...roster, notes: auditRoster(roster, people, shifts, store.roles()) }),
     editing ? null : declinedCard(roster, people, shifts, change),
