@@ -75,9 +75,23 @@ export function rosterDates(roster) {
 
 /**
  * The same days of the week moved on by whole weeks past the last of them, so
- * a fortnight's roster rolls on to the next fortnight. `days` must be sorted.
+ * a fortnight's roster rolls on to the next fortnight. A roster covering a
+ * calendar month (starting in its first week, ending in its last) rolls on to
+ * those weekdays across the whole next month instead: five weeks on would
+ * start it days late and run it into the month after. `days` must be sorted.
  */
 export function rollOn(days) {
+  const first = days[0];
+  const last = days[days.length - 1];
+  const [y, m] = first.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (first.slice(0, 7) === last.slice(0, 7)
+      && Number(first.slice(8)) <= 7 && Number(last.slice(8)) > daysInMonth - 7) {
+    const start = fromDays(toDays(first) + daysInMonth - Number(first.slice(8)) + 1); // 1st of next month
+    const [ny, nm] = start.split('-').map(Number);
+    const end = `${start.slice(0, 8)}${new Date(Date.UTC(ny, nm, 0)).getUTCDate()}`;
+    return dateRange(start, end, new Set(days.map(weekdayOf)));
+  }
   const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
   const step = Math.ceil(span / 7) * 7;
   return days.map((d) => fromDays(toDays(d) + step));
@@ -557,6 +571,9 @@ export function auditRoster(roster, people, shifts, roles = []) {
     const n = toDays(a.date);
     if (p && (p.blackouts || []).some((b) => toDays(b.start) <= n && n <= toDays(b.end))) {
       notes.push(`${formatDate(a.date)} - ${p.name} is rostered but is now away.`);
+    } else if (p && p.active && !canWork(p, a.date)) {
+      // Outside their usual days or weeks: put on by hand, kept by a lock, or their days changed since.
+      notes.push(`${formatDate(a.date)} - ${p.name} is rostered on a day they are not available.`);
     }
   }
 
