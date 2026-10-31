@@ -4,7 +4,9 @@ What changed in RosterWarden, newest first. Dates are when each change reached
 `main`. Entries before 31 October 2026 were written afterwards from the merged
 pull requests, which are linked so the full detail is one click away.
 
-## Unreleased
+## 31 October 2026
+
+All in [#35].
 
 - A roster covering a whole month now follows on to the same days across the
   whole next month. Before, it moved on five weeks, so the next one started a
@@ -143,3 +145,4 @@ First release of the web app, rebuilt from the Rosterm8 desktop app (see
 [#32]: https://github.com/Mikeyau-ai/RosterWarden/pull/32
 [#33]: https://github.com/Mikeyau-ai/RosterWarden/pull/33
 [#34]: https://github.com/Mikeyau-ai/RosterWarden/pull/34
+[#35]: https://github.com/Mikeyau-ai/RosterWarden/pull/35
