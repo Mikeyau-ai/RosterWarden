@@ -64,3 +64,11 @@ test('someone rostered on a day they are now away is flagged', async () => {
   const notes = auditRoster({ days: ['2026-11-01'], assignments: [{ date: '2026-11-01', shiftId: 1, personId: 1 }] }, people, [cafe]);
   assert.ok(notes.some((n) => n.includes('Amy is rostered but is now away')), notes.join(' | '));
 });
+
+test('someone rostered on a weekday they do not work is flagged', async () => {
+  const { auditRoster } = await import('../js/scheduler.js');
+  // 2026-11-02 is a Monday; Amy only works Sundays.
+  const people = [person(1, 'Amy', { availableWeekdays: [6] })];
+  const notes = auditRoster({ days: ['2026-11-02'], assignments: [{ date: '2026-11-02', shiftId: 1, personId: 1 }] }, people, [cafe]);
+  assert.ok(notes.some((n) => n.includes('Amy is rostered on a day they are not available')), notes.join(' | '));
+});

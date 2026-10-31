@@ -90,6 +90,8 @@ function emptyData() {
     swaps: [],
     // What staff sent through their links, for the owner to review (see js/staff.js).
     activity: [],
+    // Shifts sent out for staff to take before building (see js/open-shifts.js).
+    openShifts: [],
     settings: { aiProvider: 'gemini', aiModel: '', aiKey: '' },
   };
 }
@@ -221,6 +223,8 @@ export const store = {
       openDays: [0, 1, 2, 3, 4, 5, 6],
       openTime: '',
       closeTime: '',
+      // Where staff replies to roster emails go (js/email.js); empty means the owner's account email.
+      replyEmail: '',
     };
     this.data.orgs.push(org);
     this.data.currentOrgId = org.id;
@@ -228,7 +232,7 @@ export const store = {
     return org;
   },
 
-  /** Apply a patch to one organisation (opening days, hours, name). */
+  /** Apply a patch to one organisation (opening days, hours, name, business email for replies). */
   updateOrg(id, patch) {
     const org = this.data.orgs.find((o) => o.id === id);
     if (org) Object.assign(org, patch);
@@ -264,6 +268,7 @@ export const store = {
     this.data.rosters = this.data.rosters.filter((r) => r.orgId !== id);
     this.data.swaps = this.data.swaps.filter((w) => w.orgId !== id);
     this.data.activity = this.data.activity.filter((a) => a.orgId !== id);
+    this.data.openShifts = this.data.openShifts.filter((o) => o.orgId !== id);
     if (this.data.currentOrgId === id) {
       this.data.currentOrgId = this.data.orgs[0]?.id ?? null;
     }

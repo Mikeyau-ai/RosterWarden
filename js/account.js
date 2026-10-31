@@ -42,6 +42,11 @@ export function current() {
   return a ? { email: a.email, name: a.name } : null;
 }
 
+/** The signed-in account's token, for the sync worker to check who is asking (js/email.js), or null. */
+export function token() {
+  return stored()?.token || null;
+}
+
 /** Whether the app was built with an account server to sign in to. */
 export function isConfigured() {
   return Boolean(ACCOUNT_URL);

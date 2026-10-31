@@ -9,13 +9,15 @@
  * `source: 'staff'`), and away dates the owner entered are never touched.
  *
  * The same mailboxes carry shift swaps (see "Shift swaps" at the end), and
- * each person's yes or no to their own shifts (see takeReplies).
+ * each person's yes or no to their own shifts (see takeReplies), and shifts
+ * sent out to be taken before a roster is built (see "Open shifts" at the end).
  */
 import { store } from './store.js';
 import * as link from './staff-link.js';
 import { todayISO, toDays, fromDays, formatDate, auditRoster, shiftOn } from './scheduler.js';
 import { shiftTimes } from './export.js';
 import { responseKey } from './sources/planning-center.js';
+import { slotsFor, slotsForPerson, shortName, settleClaims, lockedFrom } from './open-shifts.js';
 
 /** How long, in days, the Updates log keeps an entry. */
 const ACTIVITY_DAYS = 90;
@@ -205,6 +207,7 @@ export async function collect(ids = null) {
     takeSwaps(p, box.value);
     takeReplies(p, box.value);
     takeProfile(p, box.value);
+    takeOpenReply(p, box.value);
     const before = staffDates(p);
     const dates = cleanDates(box.value?.awayDates);
     store.replaceSourcedBlackouts(p.id, SOURCE, dates.map((d) => ({ start: d, end: d, reason: 'from their link' })));
@@ -344,7 +347,7 @@ export async function publish(ids = null) {
       profile: { name: p.name, emailHint: link.maskEmail(p.email), mobileHint: link.maskMobile(p.phone) },
       // How far this app has read their mailbox, so their page can stop resending details already taken in.
       seenUpTo: p.staffLink.lastFromStaff || null,
-      awayDates: staffDates(p), shifts: upcomingShifts(p), swaps: swapPage(p),
+      awayDates: staffDates(p), shifts: upcomingShifts(p), swaps: swapPage(p), open: openPage(p),
     };
     const fingerprint = shortHash(JSON.stringify(content));
     if (fingerprint === p.staffLink.outHash) continue;
@@ -381,6 +384,7 @@ export function clashes(people) {
 export async function syncStaff() {
   if (linked().length === 0) return [];
   const changed = await collect();
+  await refreshClaims();
   await publish();
   return changed;
 }
@@ -655,4 +659,124 @@ export function decideSwap(id, approve) {
   decide(swap, ok ? 'done' : 'cancelled');
   store.save();
   return ok;
+}
+
+// ------------------------------------------------------------ open shifts --
+/*
+ * Before building, the owner can send the shifts for some dates out to be
+ * taken: every staff page lists the ones that person can do, and the first
+ * to tap "I'll take it" gets it (the worker referees, see js/staff-link.js).
+ * Others then see "Taken by Sam T.". Each person takes at most one a day, and
+ * can say they can't do a day at all, which becomes an away date like any
+ * other from their link. Building from the set locks the taken shifts in;
+ * the owner can still change or swap anyone after. One set is out per
+ * organisation at a time (`store.data.openShifts`, see js/open-shifts.js).
+ */
+
+/** The open set an organisation has out now, or null. */
+export function openShifts(orgId = store.data.currentOrgId) {
+  return store.data.openShifts.find((o) => o.orgId === orgId && !o.closedAt) || null;
+}
+
+/** Send out `days`, each running `dayShifts[day]`, replacing any set already out. Then publish to every page. */
+export async function sendOpenShifts(days, dayShifts) {
+  const orgId = store.data.currentOrgId;
+  const open = {
+    id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    orgId, key: link.newLinkKey(), days: [...days].sort(),
+    dayShifts: Object.fromEntries(days.map((d) => [d, dayShifts[d] || []])),
+    sentAt: new Date().toISOString(), closedAt: null, claims: {},
+  };
+  // Only the set out now is kept; a stopped or replaced one is finished with.
+  store.data.openShifts = [...store.data.openShifts.filter((o) => o.orgId !== orgId), open];
+  store.save();
+  await publish();
+  return open;
+}
+
+/** Stop an open set: it leaves every page, and claims made after are ignored. Published in the background. */
+export function stopOpenShifts(id) {
+  if (!store.data.openShifts.some((o) => o.id === id)) return;
+  store.data.openShifts = store.data.openShifts.filter((o) => o.id !== id);
+  store.save();
+  publish().catch(() => { /* published on the next sync instead */ });
+}
+
+/** The people in an organisation an open set is sent to: active, with a link. */
+export function openAudience(orgId) {
+  return store.data.people.filter((p) => p.orgId === orgId && p.active && hasLink(p));
+}
+
+/** The name a shift a person takes shows to everyone else: "Sam T.", told apart from anyone in their workplace it could be mistaken for. */
+function pickName(person) {
+  const others = store.data.people.filter((p) => p.orgId === person.orgId && p.id !== person.id).map((p) => p.name);
+  return shortName(person.name, others);
+}
+
+/**
+ * What a person's page needs for the open set: its key, the name to show on
+ * what they take, and the slots they could take. Null when none is out, or
+ * they aren't active.
+ */
+function openPage(person) {
+  const open = openShifts(person.orgId);
+  if (!open || !person.active) return null;
+  const roles = store.data.roles.filter((r) => r.orgId === person.orgId);
+  const roleById = new Map(roles.map((r) => [r.id, r]));
+  return {
+    id: open.id, key: open.key, me: pickName(person),
+    slots: slotsForPerson(open, person, roleById).map((s) => ({
+      ref: s.ref, date: s.date, shift: s.shift.name || 'Shift', times: shiftTimes(s.shift),
+      role: s.roleId != null ? roleById.get(s.roleId)?.name || null : null, note: s.shift.note || '',
+    })),
+  };
+}
+
+/** Note that a person has answered an open set (their page says so whenever they take a shift or turn a day down). */
+function takeOpenReply(person, value) {
+  if (typeof value?.openReplied === 'string' && value.openReplied !== person.staffLink.openReplied) {
+    patchLink(person.id, { openReplied: value.openReplied.slice(0, 40) });
+  }
+}
+
+/**
+ * Read who has taken what in every open set, keeping only claims really made
+ * from that person's own link, and log the newly taken ones.
+ */
+export async function refreshClaims() {
+  if (store.data.openShifts.length === 0) return;
+  for (const open of store.data.openShifts) {
+    const slots = slotsFor(open);
+    const ids = await Promise.all(slots.map((s) => link.claimId(open.key, s.ref)));
+    const found = await link.readClaims(ids, await link.openCryptoKey(open.key));
+    // Whose link each claim's `by` comes from, among the people this set went to.
+    const byOf = new Map();
+    for (const p of openAudience(open.orgId)) byOf.set((await link.claimer(p.staffLink.key)).by, p);
+    const claims = [];
+    slots.forEach((s, i) => {
+      const c = found.get(ids[i]);
+      const person = c && byOf.get(c.by);
+      if (person) claims.push({ ref: s.ref, personId: person.id, name: pickName(person), at: String(c.value?.at || '') });
+    });
+    const next = settleClaims(claims);
+    for (const s of slots) {
+      const c = next[s.ref];
+      if (!c || open.claims[s.ref]?.personId === c.personId) continue;
+      const person = store.data.people.find((p) => p.id === c.personId);
+      news(person, 'open', `${person.name.split(' ')[0]} took ${formatDate(s.date, { withWeekday: false })} ${s.shift.name || 'Shift'}`, { date: s.date });
+    }
+    open.claims = next;
+  }
+  store.save();
+}
+
+/**
+ * The shifts taken in the current organisation's open set, as locked places
+ * for building on `dates`; `dayListFor(date)` is what each date runs now.
+ */
+export function openLocked(dates, dayListFor) {
+  const open = openShifts();
+  if (!open) return [];
+  const keep = (id) => store.data.people.some((p) => p.id === id && p.active);
+  return lockedFrom(open, dates, dayListFor, keep);
 }

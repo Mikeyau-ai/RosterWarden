@@ -29,7 +29,6 @@ export function shiftTimes(shift) {
   return `${short(shift.start)}–${short(shift.end)}`;
 }
 
-/** "Sun 11 Oct" - the short date used in messages, where the year is noise. */
 /**
  * Hours in a shift, from its start and end times; a shift that ends at or
  * before it starts runs past midnight. Zero when it has no times.
@@ -76,6 +75,7 @@ export function messageFor(roster, person, shifts, roles = []) {
   return `Hi ${person.name.split(' ')[0]}, you're on the roster (${roster.name}):\n${lines.join('\n')}`;
 }
 
+/** "Sun 11 Oct" - the short date used in messages, where the year is noise. */
 function shortDate(iso) {
   return `${weekdayName(iso)} ${formatDate(iso, { withWeekday: false }).replace(/ \d{4}$/, '').replace(/^0/, '')}`;
 }

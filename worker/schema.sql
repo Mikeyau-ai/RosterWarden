@@ -19,3 +19,25 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   updated_at TEXT NOT NULL,
   revoked    INTEGER NOT NULL DEFAULT 0
 );
+
+-- Open-shift claims: who took each shift sent out to be picked, first come,
+-- first served. `ciphertext` (the person and when) is sealed with a key only
+-- the owner and their staff hold; `by_hash` is the hash of a secret from the
+-- claimer's link, so only they can change or let go of it.
+CREATE TABLE IF NOT EXISTS claims (
+  id         TEXT PRIMARY KEY,
+  ciphertext TEXT NOT NULL,
+  iv         TEXT NOT NULL,
+  by_hash    TEXT NOT NULL,
+  claimed_at TEXT NOT NULL
+);
+
+-- How many roster emails each owner's account sent on each day, to hold it to
+-- a daily limit. `account` is a hash of the account's email; the emails
+-- themselves are never kept.
+CREATE TABLE IF NOT EXISTS email_sends (
+  account TEXT NOT NULL,
+  day     TEXT NOT NULL,             -- YYYY-MM-DD, UTC
+  sent    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (account, day)
+);

@@ -75,9 +75,23 @@ export function rosterDates(roster) {
 
 /**
  * The same days of the week moved on by whole weeks past the last of them, so
- * a fortnight's roster rolls on to the next fortnight. `days` must be sorted.
+ * a fortnight's roster rolls on to the next fortnight. A roster covering a
+ * calendar month (starting in its first week, ending in its last) rolls on to
+ * those weekdays across the whole next month instead: five weeks on would
+ * start it days late and run it into the month after. `days` must be sorted.
  */
 export function rollOn(days) {
+  const first = days[0];
+  const last = days[days.length - 1];
+  const [y, m] = first.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  if (first.slice(0, 7) === last.slice(0, 7)
+      && Number(first.slice(8)) <= 7 && Number(last.slice(8)) > daysInMonth - 7) {
+    const start = fromDays(toDays(first) + daysInMonth - Number(first.slice(8)) + 1); // 1st of next month
+    const [ny, nm] = start.split('-').map(Number);
+    const end = `${start.slice(0, 8)}${new Date(Date.UTC(ny, nm, 0)).getUTCDate()}`;
+    return dateRange(start, end, new Set(days.map(weekdayOf)));
+  }
   const span = toDays(days[days.length - 1]) - toDays(days[0]) + 1;
   const step = Math.ceil(span / 7) * 7;
   return days.map((d) => fromDays(toDays(d) + step));
@@ -207,7 +221,7 @@ export function canDoRole(person, roleId, roleById) {
  * The places a shift needs filled: one per role with how many, or - when the
  * shift has no roles - a single place with no role and its plain headcount.
  */
-function slotsOf(shift) {
+export function slotsOf(shift) {
   if (shift.roles?.length) {
     return shift.roles
       .filter((r) => r.count > 0)
@@ -557,6 +571,9 @@ export function auditRoster(roster, people, shifts, roles = []) {
     const n = toDays(a.date);
     if (p && (p.blackouts || []).some((b) => toDays(b.start) <= n && n <= toDays(b.end))) {
       notes.push(`${formatDate(a.date)} - ${p.name} is rostered but is now away.`);
+    } else if (p && p.active && !canWork(p, a.date)) {
+      // Outside their usual days or weeks: put on by hand, kept by a lock, or their days changed since.
+      notes.push(`${formatDate(a.date)} - ${p.name} is rostered on a day they are not available.`);
     }
   }
 
@@ -615,80 +632,4 @@ export function daysDiffer(roster, usual) {
   if (!roster?.dayShifts) return false;
   const keys = rosterDates(roster).map((d) => shiftsOn(roster, d, usual).map((s) => s.id).join(','));
   return keys.some((k) => k !== keys[0]);
-}
-
-/**
- * Render a roster as an aligned monospace table.
- *
- * Used for the Copy and Export actions - it pastes cleanly into a message or a
- * printout. The on-screen view uses a day-by-day layout instead, because a wide
- * table is the wrong shape for a phone.
- */
-export function formatTable(roster, people, shifts, roles = []) {
-  const names = new Map(people.map((p) => [p.id, p.name]));
-  const roleName = new Map(roles.map((r) => [r.id, r.name]));
-
-  // Index assignments by date+shift so each cell is a single lookup.
-  const cells = new Map();
-  for (const a of roster.assignments) {
-    const key = `${a.date}|${a.shiftId}`;
-    if (!cells.has(key)) cells.set(key, []);
-    const who = names.get(a.personId) || `#${a.personId}`;
-    // On a shift made of roles, say which role each person has.
-    cells.get(key).push(a.roleId != null ? `${who} (${roleName.get(a.roleId) || 'removed role'})` : who);
-  }
-
-  const days = [...new Set(roster.assignments.map((a) => a.date))].sort();
-  let headers;
-  let rows;
-  if (daysDiffer(roster, shifts)) {
-    // The days run different shifts, so one row per date and shift instead of a column each.
-    headers = ['Date', 'Day', 'Shift', 'Start', 'End', 'People'];
-    rows = days.flatMap((d) => shiftsOn(roster, d, shifts).map((s) => [
-      formatDate(d, { withWeekday: false }), weekdayName(d), s.name, s.start || '', s.end || '',
-      (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-',
-    ]));
-  } else {
-    const columns = rosterShiftList(roster, shifts);
-    headers = ['Date', 'Day', ...columns.map((s) => shiftLabel(s))];
-    rows = days.map((d) => [
-      formatDate(d, { withWeekday: false }),
-      weekdayName(d),
-      ...columns.map((s) => (cells.get(`${d}|${s.id}`) || []).sort().join(', ') || '-'),
-    ]);
-  }
-
-  // Column widths are the widest cell in each column, header included.
-  const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => r[i].length), 0)
-  );
-  const line = (cols) =>
-    cols.map((c, i) => c.padEnd(widths[i])).join('  ').replace(/\s+$/, '');
-
-  const out = [line(headers), widths.map((w) => '-'.repeat(w)).join('  ')];
-  for (const r of rows) out.push(line(r));
-
-  // Fairness summary: how many shifts each person actually ended up with.
-  const tally = [...counts(roster).entries()].sort(
-    (a, b) => b[1] - a[1] || (names.get(a[0]) || '').localeCompare(names.get(b[0]) || '')
-  );
-  if (tally.length) {
-    out.push('', 'Summary');
-    for (const [pid, n] of tally) {
-      out.push(`  ${names.get(pid) || `#${pid}`}: ${n} shift${n === 1 ? '' : 's'}`);
-    }
-  }
-
-  if (roster.notes.length) {
-    out.push('', 'Notes');
-    for (const n of roster.notes) out.push(`  - ${n}`);
-  }
-
-  return out.join('\n');
-}
-
-/** Display label for a shift, e.g. "Early (06:00-14:00)". */
-export function shiftLabel(shift) {
-  if (shift.start && shift.end) return `${shift.name} (${shift.start}-${shift.end})`;
-  return shift.name;
 }

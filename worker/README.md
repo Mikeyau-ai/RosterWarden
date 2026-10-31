@@ -16,6 +16,21 @@ keyed by ids made from the key in their link. Same rule: it stores them and
 cannot read them. Replacing a link marks its boxes `revoked`, so an old link can
 never write again.
 
+And it referees **open shifts** sent out to pick (`/claim/:id`, `/claims`, table
+`claims` in `schema.sql`): the first person to take a shift holds it, and only
+they can let it go. Each claim is sealed with a key only the owner and their
+staff hold; the worker keeps just a hash of the claimer's secret, so it can tell
+the holder apart without knowing who they are. After updating the worker, run the
+`d1 execute` line under first-time setup again to add the table (it only creates
+tables that are missing).
+
+It **emails rosters out** for signed-in owners (`POST /email`, table
+`email_sends` in `schema.sql`; see "Emailing rosters" below). This is the one
+exception to "it cannot read anything": to send them, each person's message
+reaches the worker as plain text. It passes them straight to the email service
+and keeps only a count per account per day (under a hash of the account's
+email). The app says so before every send.
+
 It also does one small job for Planning Center sign-in: `POST /pco/token`,
 `POST /pco/refresh` and `POST /pco/revoke` add the app's client secret (and an
 identifying User-Agent, which Planning Center requires) to a token request and
@@ -40,6 +55,41 @@ comes through here (the app calls Planning Center's API directly).
 
 Until both are set, the endpoints answer `501` and the app's Planning Center
 card says it isn't set up.
+
+## Emailing rosters (optional)
+
+*Send → Email everyone* in the app posts each person's message here, and the
+worker sends them through [Resend](https://resend.com). Each email comes from
+`"<workplace> via RosterWarden" <EMAIL_FROM>`, with Reply-To set to the
+workplace's business email (or the owner's account email).
+
+Guards: the bearer token must be a signed-in owner (checked against
+`ACCOUNT_URL/api/rw/me` on the account server), each account can send
+`DAILY_EMAILS` (100) a day, at most 100 in one send, one address per email,
+plain text only, and header fields are stripped of anything that could add a
+header. The server can't read rosters, so it can't check the addresses are the
+roster's people: the app picks them from the roster.
+
+1. Sign up at Resend and verify the sending domain (the DNS records it lists).
+2. Set `EMAIL_FROM` in `wrangler.toml` to an address on that domain, and check
+   `ACCOUNT_URL` is the account server.
+3. Store the API key on Cloudflare, never in a file:
+
+   ```bash
+   npx wrangler secret put RESEND_API_KEY
+   ```
+
+4. Add the `email_sends` table (only missing tables are created):
+
+   ```bash
+   npx wrangler d1 execute rosterm8 --remote --file=./schema.sql
+   ```
+
+5. `npx wrangler deploy`.
+
+Until the key is set, `/email` answers `501` and the app shows that message.
+Resend's free plan allows 100 emails a day across all accounts, so a paid plan
+is needed once more than one workplace sends.
 
 ## What it costs
 
@@ -128,6 +178,6 @@ belongs to.
 
 | File | Purpose |
 |---|---|
-| `src/index.js` | the Worker — two endpoints, GET and PUT |
-| `schema.sql` | the single D1 table |
+| `src/index.js` | the Worker: sync, staff mailboxes, open-shift claims, roster emails, Planning Center sign-in |
+| `schema.sql` | the D1 tables |
 | `wrangler.toml` | deploy config; holds your `database_id` |

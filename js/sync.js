@@ -29,9 +29,6 @@ const SECRET_KEY = 'rosterwarden.sync.secret';
 /** Set when the user has deliberately turned sync off on this device. */
 const OFF_KEY = 'rosterwarden.sync.off';
 
-/** Set once the user has confirmed they have written their code down. */
-const ACK_KEY = 'rosterwarden.sync.ack';
-
 /** Server timestamp this device last agreed with. */
 const SYNCED_AT_KEY = 'rosterwarden.sync.at';
 
@@ -75,17 +72,6 @@ function encodeCode(bytes) {
 /** Strip formatting so a pasted code with spaces or capitals still works. */
 export function normaliseCode(code) {
   return String(code || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * Re-group a code into fours for display.
- *
- * Codes are stored stripped, because that is what the key derivation uses -
- * but an unbroken twenty-character string is exactly what someone copying it
- * onto a second phone will get wrong. Grouping is put back for the eye.
- */
-export function formatCode(code) {
-  return (normaliseCode(code).match(/.{1,4}/g) || []).join('-');
 }
 
 /** Generate a new random sync code. */
@@ -176,22 +162,6 @@ export function setDisabled(off) {
     if (off) localStorage.setItem(OFF_KEY, '1');
     else localStorage.removeItem(OFF_KEY);
   } catch { /* storage unavailable; sync simply stays off for this session */ }
-}
-
-/** True once the user has confirmed they have a copy of their sync code. */
-export function codeAcknowledged() {
-  try {
-    return localStorage.getItem(ACK_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-/** Record that the user has saved their code, so we stop asking. */
-export function acknowledgeCode() {
-  try {
-    localStorage.setItem(ACK_KEY, '1');
-  } catch { /* nothing to do; we will simply ask again next time */ }
 }
 
 /** Read a stored timestamp, or '' when there isn't one. */
@@ -326,26 +296,14 @@ export class SyncError extends Error {}
 /** Pending debounce timer for an automatic push. */
 let pushTimer = null;
 
-/** Most recent automatic-sync outcome, for Settings to display. */
+/** Most recent automatic-sync outcome. Nothing on screen shows it since the sync screen went; kept for checking from the console. */
 export const status = { state: 'idle', at: null, message: '' };
 
-/** Listeners notified whenever `status` changes. */
-const watchers = new Set();
-
-/** Subscribe to sync status changes; returns an unsubscribe function. */
-export function watchStatus(fn) {
-  watchers.add(fn);
-  return () => watchers.delete(fn);
-}
-
-/** Update the shared status and tell anyone watching. */
+/** Update the shared status. */
 function setStatus(state, message = '') {
   status.state = state;
   status.message = message;
   status.at = new Date().toISOString();
-  for (const fn of watchers) {
-    try { fn(status); } catch { /* a broken watcher must not break syncing */ }
-  }
 }
 
 /**

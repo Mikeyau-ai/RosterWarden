@@ -24,6 +24,23 @@
  *   DELETE /box/:id  ->  { ok: true }  marks it replaced, so the old link stops working
  *   POST   /boxes    <-  { ids: [...] } -> { [id]: { ciphertext, iv, updatedAt } | { replaced: true } }
  *
+ * Open-shift claims (see js/open-shifts.js) - one tiny encrypted record per
+ * shift sent out to be taken, first come, first served, under an id derived
+ * from that set's shared key. `token` is a secret only the claimer's link
+ * gives; the worker keeps just its hash (`by`), so it can tell the holder
+ * from everyone else without knowing who either is:
+ *   PUT    /claim/:id  <-  { ciphertext, iv, token }  (409 if someone else holds it)
+ *   DELETE /claim/:id  <-  { token }                  lets it go, only for its holder
+ *   POST   /claims     <-  { ids: [...] } -> { [id]: { ciphertext, iv, by } }
+ *
+ * Emailing a roster (see js/email.js) - the one place roster text reaches this
+ * server unencrypted. The owner's app sends each person's own message; the
+ * worker checks the sign-in with the account server, holds each account to a
+ * daily number of emails, and hands them to the email service. Nothing of the
+ * messages is kept here, only a count per account per day:
+ *   POST   /email  <-  { business, replyTo, title, messages: [{ to, text }] }
+ *                      with Authorization: Bearer <account token>  -> { sent }
+ *
  * Planning Center sign-in endpoints (see js/sources/planning-center.js):
  *   POST /pco/token    <- { code, redirect_uri, code_verifier } -> Planning Center's token response
  *   POST /pco/refresh  <- { refresh_token }        -> Planning Center's token response
@@ -63,6 +80,38 @@ export const BOX_SQL = {
     + "ON CONFLICT(id) DO UPDATE SET ciphertext = '', iv = '', updated_at = excluded.updated_at, revoked = 1",
 };
 
+/** Biggest claim accepted, in bytes: a person id, a short name and a time. */
+const CLAIM_MAX_BYTES = 2 * 1024;
+
+/** The claim SQL, named like BOX_SQL for the tests' stand-in database. */
+export const CLAIM_SQL = {
+  read: 'SELECT ciphertext, iv, by_hash FROM claims WHERE id = ?',
+  // A new claim goes in; an existing one changes only for its own holder.
+  take: 'INSERT INTO claims (id, ciphertext, iv, by_hash, claimed_at) VALUES (?, ?, ?, ?, ?) '
+    + 'ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv '
+    + 'WHERE claims.by_hash = excluded.by_hash',
+  release: 'DELETE FROM claims WHERE id = ? AND by_hash = ?',
+};
+
+/** Most emails one account can send in a day, all rosters together. */
+export const DAILY_EMAILS = 100;
+
+/** Most emails in one send: the email service's batch limit. */
+const EMAIL_BATCH_MAX = 100;
+
+/** Longest message text accepted, in characters. A month of shifts is well under this. */
+const EMAIL_TEXT_MAX = 4000;
+
+/** The daily email count SQL, named like BOX_SQL for the tests' stand-in database. */
+export const EMAIL_SQL = {
+  read: 'SELECT sent FROM email_sends WHERE account = ? AND day = ?',
+  add: 'INSERT INTO email_sends (account, day, sent) VALUES (?, ?, ?) '
+    + 'ON CONFLICT(account, day) DO UPDATE SET sent = email_sends.sent + excluded.sent',
+};
+
+/** A plain email address, with nothing that could add a header. */
+const EMAIL_PATTERN = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/;
+
 /** Ids are always a hex SHA-256; anything else is a bad request, not a lookup. */
 const ID_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -71,7 +120,7 @@ function cors(origin) {
   return {
     'Access-Control-Allow-Origin': origin || '*',
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -104,7 +153,16 @@ export default {
       return pcoRevoke(request, env, origin);
     }
 
+    if (request.method === 'POST' && url.pathname === '/email') return emailRoster(request, env, origin);
     if (request.method === 'POST' && url.pathname === '/boxes') return boxBatch(request, env, origin);
+    if (request.method === 'POST' && url.pathname === '/claims') return claimBatch(request, env, origin);
+    const claim = url.pathname.match(/^\/claim\/([^/]+)$/);
+    if (claim) {
+      if (!ID_PATTERN.test(claim[1])) return json({ error: 'Bad id' }, 400, origin);
+      if (request.method === 'PUT') return claimTake(claim[1], request, env, origin);
+      if (request.method === 'DELETE') return claimRelease(claim[1], request, env, origin);
+      return json({ error: 'Method not allowed' }, 405, origin);
+    }
     const box = url.pathname.match(/^\/box\/([^/]+)$/);
     if (box) {
       if (!ID_PATTERN.test(box[1])) return json({ error: 'Bad id' }, 400, origin);
@@ -182,6 +240,166 @@ async function boxBatch(request, env, origin) {
       : { ciphertext: row.ciphertext, iv: row.iv, updatedAt: row.updated_at };
   }
   return json(out, 200, origin);
+}
+
+/** Hex SHA-256 of some text: a claimer's token, or an account's email, kept instead of the thing itself. */
+async function tokenHash(token) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** The JSON body of a request, or null if it isn't JSON. */
+async function bodyOf(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take a shift for whoever holds `token`, unless someone else already has it.
+ * The insert is one statement, so of two people tapping at once only the
+ * first gets it; reading the row back says who that was.
+ */
+async function claimTake(id, request, env, origin) {
+  const body = await bodyOf(request);
+  const { ciphertext, iv, token } = body || {};
+  if (typeof ciphertext !== 'string' || typeof iv !== 'string' || !ID_PATTERN.test(token || '')) {
+    return json({ error: 'ciphertext, iv and token are required' }, 400, origin);
+  }
+  if (ciphertext.length > CLAIM_MAX_BYTES) return json({ error: 'Too large' }, 413, origin);
+  const by = await tokenHash(token);
+  await env.DB.prepare(CLAIM_SQL.take).bind(id, ciphertext, iv, by, new Date().toISOString()).run();
+  const row = await env.DB.prepare(CLAIM_SQL.read).bind(id).first();
+  if (row?.by_hash !== by) return json({ error: 'Someone else took it first' }, 409, origin);
+  return json({ ok: true, by }, 200, origin);
+}
+
+/** Let a shift go: only the token that took it can. */
+async function claimRelease(id, request, env, origin) {
+  const body = await bodyOf(request);
+  if (!ID_PATTERN.test(body?.token || '')) return json({ error: 'token is required' }, 400, origin);
+  await env.DB.prepare(CLAIM_SQL.release).bind(id, await tokenHash(body.token)).run();
+  return json({ ok: true }, 200, origin);
+}
+
+/** Several claims at once: each one's sealed contents and its holder's hash. Free shifts are left out. */
+async function claimBatch(request, env, origin) {
+  const ids = (await bodyOf(request))?.ids;
+  if (!Array.isArray(ids) || ids.length > BOX_BATCH_MAX || !ids.every((id) => ID_PATTERN.test(id))) {
+    return json({ error: 'ids must be up to 200 hex ids' }, 400, origin);
+  }
+  const out = {};
+  for (const id of ids) {
+    const row = await env.DB.prepare(CLAIM_SQL.read).bind(id).first();
+    if (row) out[id] = { ciphertext: row.ciphertext, iv: row.iv, by: row.by_hash };
+  }
+  return json(out, 200, origin);
+}
+
+/**
+ * The signed-in owner behind a request's bearer token, as `{ email, name }`,
+ * or null. The account server (sixthdaystudios.com) is the one that knows.
+ */
+async function ownerOf(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  if (!/^Bearer \S+$/.test(auth)) return null;
+  const res = await fetch(`${env.ACCOUNT_URL}/api/rw/me`, { headers: { Authorization: auth } });
+  if (!res.ok) return null;
+  const me = await res.json().catch(() => null);
+  return me?.email ? me : null;
+}
+
+/** Text for an email header: one line, no quotes or angle brackets, at most `max` characters. */
+function headerText(text, max) {
+  return String(text || '').replace(/[\s"<>]+/g, ' ').trim().slice(0, max);
+}
+
+/**
+ * Hand a batch of emails to the email service, all or none. The one place
+ * that knows which service it is (Resend); each email is
+ * `{ from, replyTo, to, subject, text }`. Throws if the service refuses.
+ */
+async function sendEmails(env, emails) {
+  const res = await fetch('https://api.resend.com/emails/batch', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(emails.map((e) => ({
+      from: e.from, reply_to: e.replyTo, to: [e.to], subject: e.subject, text: e.text,
+    }))),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || `HTTP ${res.status}`);
+  }
+}
+
+/**
+ * Email each person on a roster their own shifts, for a signed-in owner.
+ * It comes from "<business> via RosterWarden" at EMAIL_FROM, replies go to
+ * the owner's business email (or their account email), and a line at the
+ * bottom says who sent it. The server can't read rosters, so it can't check
+ * these are the roster's people - the app picks them; here each account is
+ * held to DAILY_EMAILS a day, one address per email.
+ */
+async function emailRoster(request, env, origin) {
+  if (!env.RESEND_API_KEY || !env.EMAIL_FROM || !env.ACCOUNT_URL) {
+    return json({ error: 'Email is not set up on this server yet.' }, 501, origin);
+  }
+  let owner;
+  try {
+    owner = await ownerOf(request, env);
+  } catch {
+    return json({ error: 'Could not reach the account server. Try again in a moment.' }, 502, origin);
+  }
+  if (!owner) return json({ error: 'Please sign in again to send emails.' }, 401, origin);
+
+  const body = await bodyOf(request);
+  const messages = body?.messages;
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > EMAIL_BATCH_MAX) {
+    return json({ error: `Send between 1 and ${EMAIL_BATCH_MAX} messages.` }, 400, origin);
+  }
+  const seen = new Set();
+  for (const m of messages) {
+    const to = typeof m?.to === 'string' ? m.to.trim().toLowerCase() : '';
+    if (!EMAIL_PATTERN.test(to) || seen.has(to) || typeof m.text !== 'string' || !m.text.trim()) {
+      return json({ error: 'Each message needs its own email address and some text.' }, 400, origin);
+    }
+    if (m.text.length > EMAIL_TEXT_MAX) return json({ error: 'A message is too long.' }, 413, origin);
+    seen.add(to);
+  }
+  const business = headerText(body.business, 80) || 'Your roster';
+  const title = headerText(body.title, 120);
+  const replyTo = EMAIL_PATTERN.test(body.replyTo || '') ? body.replyTo : owner.email;
+
+  // The daily cap, counted under a hash of the account's email rather than the email itself.
+  const account = await tokenHash(owner.email.toLowerCase());
+  const day = new Date().toISOString().slice(0, 10);
+  const row = await env.DB.prepare(EMAIL_SQL.read).bind(account, day).first();
+  const left = DAILY_EMAILS - (row?.sent || 0);
+  if (messages.length > left) {
+    return json({
+      error: left > 0
+        ? `You can send ${left} more email${left === 1 ? '' : 's'} today, and this is ${messages.length}. Try again tomorrow.`
+        : `That's the most emails for today (${DAILY_EMAILS}). Try again tomorrow.`,
+    }, 429, origin);
+  }
+
+  const footer = `\n\n--\nSent by RosterWarden for ${business}. Reply to this email to reach them.`;
+  try {
+    await sendEmails(env, messages.map((m) => ({
+      from: `"${business} via RosterWarden" <${env.EMAIL_FROM}>`,
+      replyTo,
+      to: m.to.trim(),
+      subject: title ? `Your shifts: ${title}` : 'Your shifts',
+      text: m.text + footer,
+    })));
+  } catch (e) {
+    return json({ error: `The email service refused: ${e.message}` }, 502, origin);
+  }
+  await env.DB.prepare(EMAIL_SQL.add).bind(account, day, messages.length).run();
+  return json({ sent: messages.length }, 200, origin);
 }
 
 /** Return the stored blob for `id`, or 404 if there has never been one. */

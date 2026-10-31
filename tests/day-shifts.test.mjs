@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildRoster, auditRoster, shiftsOn, shiftOn, rosterShiftList, formatTable, runsOn, copyDayShifts, carryDayShifts,
+  buildRoster, auditRoster, shiftsOn, shiftOn, rosterShiftList, runsOn, copyDayShifts, carryDayShifts,
 } from '../js/scheduler.js';
 import { rosterLines, formatMessage, hoursByPerson, messageFor } from '../js/export.js';
 
@@ -106,8 +106,6 @@ test('rosterLines and formatMessage show a one-off on its day only', () => {
   const text = formatMessage(r, people, usual);
   assert.ok(text.includes('Gala 18:00–22:00'));
   assert.equal(text.split('Gala').length, 2);
-  // The days differ, so the text table has a row per date and shift.
-  assert.ok(/Gala\s+18:00\s+22:00/.test(formatTable(r, people, usual)));
 });
 
 test('hours and messages use the shift as it runs that day', () => {
@@ -174,21 +172,6 @@ test('carryDayShifts carries a day with no shifts, and nothing from a roster wit
   assert.deepEqual(carryDayShifts(source, ['2026-06-08'], usual), { '2026-06-08': [] });
   assert.deepEqual(carryDayShifts({ days: [D1] }, ['2026-06-08'], usual), {});
   assert.deepEqual(carryDayShifts(source, ['2026-06-09'], usual), {});   // no Tuesday in the source
-});
-
-test('formatTable gives a row per date and shift when the days differ', () => {
-  const dayShifts = { [D1]: [usual[0]], [D2]: [usual[0], oneOff] };
-  const roster = build(dayShifts);
-  const text = formatTable(roster, people, usual);
-  assert.match(text.split('\n')[0], /^Date\s+Day\s+Shift\s+Start\s+End\s+People$/);
-  assert.match(text, /Gala\s+18:00\s+22:00/);
-  // Cafe on both days plus Gala on the second: three rows under the header and rule.
-  assert.equal(text.split('\n').slice(2, 5).filter((l) => /Cafe|Gala/.test(l)).length, 3);
-});
-
-test('formatTable keeps a column per shift when every day runs the same shifts', () => {
-  const text = formatTable(build({ [D1]: [usual[0]], [D2]: [usual[0]] }), people, usual);
-  assert.match(text.split('\n')[0], /^Date\s+Day\s+Cafe \(08:00-12:00\)$/);
 });
 
 test('carryDayShifts leaves events behind: they are one-offs', () => {

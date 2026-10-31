@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildRoster, dateRange, formatTable, counts, weekdayOf, toDays, fromDays,
+  buildRoster, dateRange, counts, weekdayOf, toDays, fromDays,
 } from '../js/scheduler.js';
 
 const ALL_DAYS = new Set([0, 1, 2, 3, 4, 5, 6]);
@@ -252,15 +252,3 @@ test('a request outside the rostered dates is not reported as missed', () => {
   assert.ok(!r.notes.some((n) => n.includes('asked for')));
 });
 
-test('the text table carries headers, names and the summary', () => {
-  const people = [person(1, 'Alice'), person(2, 'Bob')];
-  const shifts = [
-    { id: 1, name: 'Early', start: '06:00', end: '14:00', headcount: 1 },
-    { id: 2, name: 'Late', start: '14:00', end: '22:00', headcount: 1 },
-  ];
-  const r = build(people, shifts, [], '2026-06-01', '2026-06-05', WEEKDAYS);
-  const text = formatTable(r, people, shifts);
-  for (const want of ['Date', 'Early', 'Alice', 'Summary']) {
-    assert.ok(text.includes(want), `table should mention ${want}`);
-  }
-});
