@@ -223,6 +223,8 @@ export const store = {
       openDays: [0, 1, 2, 3, 4, 5, 6],
       openTime: '',
       closeTime: '',
+      // Where staff replies to roster emails go (js/email.js); empty means the owner's account email.
+      replyEmail: '',
     };
     this.data.orgs.push(org);
     this.data.currentOrgId = org.id;
@@ -230,7 +232,7 @@ export const store = {
     return org;
   },
 
-  /** Apply a patch to one organisation (opening days, hours, name). */
+  /** Apply a patch to one organisation (opening days, hours, name, business email for replies). */
   updateOrg(id, patch) {
     const org = this.data.orgs.find((o) => o.id === id);
     if (org) Object.assign(org, patch);

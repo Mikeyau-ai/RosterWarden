@@ -31,3 +31,13 @@ CREATE TABLE IF NOT EXISTS claims (
   by_hash    TEXT NOT NULL,
   claimed_at TEXT NOT NULL
 );
+
+-- How many roster emails each owner's account sent on each day, to hold it to
+-- a daily limit. `account` is a hash of the account's email; the emails
+-- themselves are never kept.
+CREATE TABLE IF NOT EXISTS email_sends (
+  account TEXT NOT NULL,
+  day     TEXT NOT NULL,             -- YYYY-MM-DD, UTC
+  sent    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (account, day)
+);

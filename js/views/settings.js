@@ -20,6 +20,7 @@ import * as staff from '../staff.js';
 import * as account from '../account.js';
 import { signInButtons } from './account.js';
 import { STORED_KEY as STAFF_LINK_KEY } from './staff.js';
+import { looksLikeEmail } from '../email.js';
 
 /**
  * Which sub-screen is open, or null for the menu.
@@ -42,7 +43,7 @@ const MENU = [
   {
     group: 'Your workplace',   // people and shifts have their own Team tab
     items: [
-      { id: 'workplace', label: 'Name and opening hours', hint: 'The days you trade, rename or delete' },
+      { id: 'workplace', label: 'Name, email and opening hours', hint: 'The days you trade, where replies go, rename or delete' },
       { id: 'swaps', label: 'Shift swaps', hint: 'Let staff hand their shifts to each other' },
       // Not a section: opens the setup wizard over Settings.
       { id: 'wizard', label: 'Set up a new workplace', hint: 'Step by step: hours, shifts, team and skills', run: () => openWizard() },
@@ -154,7 +155,7 @@ function renderSectionBody(name, container) {
 }
 
 /**
- * Section: the organisation's name and opening hours, and deleting it.
+ * Section: the organisation's name, business email and opening hours, and deleting it.
  * One card for the things you set once about the place itself.
  */
 function renderWorkplaceCard() {
@@ -166,6 +167,17 @@ function renderWorkplaceCard() {
     store.renameOrg(org.id, value);
     refreshOrgs();
     toast('Renamed');
+  });
+
+  // Where staff replies go when the roster is emailed out (js/email.js).
+  const replyInput = el('input', {
+    type: 'email', value: org.replyEmail || '', placeholder: account.current()?.email || 'you@yourbusiness.com',
+  });
+  replyInput.addEventListener('change', () => {
+    const value = replyInput.value.trim();
+    if (value && !looksLikeEmail(value)) { toast("That doesn't look like an email address"); return; }
+    store.updateOrg(org.id, { replyEmail: value });
+    toast(value ? 'Saved' : 'Replies will go to your account email');
   });
 
   const deleteBtn = el('button', {
@@ -184,8 +196,13 @@ function renderWorkplaceCard() {
   });
 
   return el('div', { className: 'card' }, [
-    el('h3', { textContent: 'Name and opening hours' }),
+    el('h3', { textContent: 'Name, email and opening hours' }),
     el('div', {}, [el('label', { className: 'label', textContent: 'Name' }), nameInput]),
+    el('div', {}, [
+      el('label', { className: 'label', textContent: 'Business email for replies' }),
+      replyInput,
+      el('div', { className: 'faint', textContent: 'When you email a roster out, staff replies go here. Leave it empty to use your account email.' }),
+    ]),
     renderOpeningHours(org),
     deleteBtn,
   ]);

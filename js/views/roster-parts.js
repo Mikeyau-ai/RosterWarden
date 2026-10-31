@@ -17,6 +17,8 @@ import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
   hoursByPerson, messageFor,
 } from '../export.js';
+import * as email from '../email.js';
+import * as account from '../account.js';
 
 /**
  * People who could be put on `date` without double-booking them or working
@@ -480,6 +482,98 @@ function openMessages(roster, people, shifts) {
   ]);
 }
 
+/** "Ann, Sam and Lee" - names in a sentence. */
+function nameList(names) {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Email everyone on the roster their own shifts, sent by the server so no
+ * mail app opens. It always asks first: who will get one, who won't and why,
+ * who it comes from and where replies go, and that this is the one time the
+ * roster leaves the phone unencrypted. Afterwards it says who was emailed.
+ */
+async function emailEveryone(roster, people, shifts) {
+  const { messages, skipped } = email.emailList(roster, people, shifts, store.roles());
+  const org = store.currentOrg();
+  const signedIn = account.current();
+  const skippedLine = skipped.length
+    ? el('p', {
+      className: 'muted',
+      textContent: `Not emailed: ${skipped.map((s) => `${s.person.name} (${s.why})`).join(', ')}. `
+        + 'Add an email on their page, or use Message each person.',
+    })
+    : null;
+
+  if (!signedIn || !messages.length) {
+    return dialog((close) => [
+      el('h2', { textContent: 'Email everyone' }),
+      el('p', {
+        textContent: !signedIn
+          ? 'Sign in first (Settings, Account). Emails are sent for your account, so only you can send them.'
+          : 'Nobody on this roster has an email saved.',
+      }),
+      signedIn ? skippedLine : null,
+      el('div', { className: 'modal-actions' }, [
+        el('button', { className: 'btn btn-primary', textContent: 'OK', onclick: () => close() }),
+      ]),
+    ]);
+  }
+
+  const replyTo = org.replyEmail || signedIn.email;
+  const n = messages.length;
+  const err = el('div', { className: 'err' });
+  const sendBtn = el('button', { className: 'btn btn-primary', textContent: `Send ${n} email${n === 1 ? '' : 's'}` });
+  const sent = await dialog((close) => {
+    sendBtn.onclick = async () => {
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending…';
+      err.textContent = '';
+      try {
+        await email.sendRoster(org, roster.name, messages);
+        close(true);
+      } catch (e) {
+        err.textContent = e.message;
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Try again';
+      }
+    };
+    return [
+      el('h2', { textContent: 'Email everyone?' }),
+      el('p', {
+        textContent: `${n === 1 ? '1 person gets' : `${n} people get`} an email with just their own shifts: `
+          + nameList(messages.map((m) => m.person.name)) + '.',
+      }),
+      skippedLine,
+      el('p', {
+        className: 'muted',
+        textContent: `It comes from "${org.name} via RosterWarden", and replies go to ${replyTo}.`
+          + (org.replyEmail ? '' : ' To use a business email instead, set one in Settings, Name, email and opening hours.'),
+      }),
+      el('p', {
+        className: 'faint',
+        textContent: "Your rosters are encrypted, so our server can't read them. To send these, each person's "
+          + "message goes to our server and our email service as plain text. We don't keep it; the email service "
+          + 'keeps a copy of sent emails for a short while, as any email service does.',
+      }),
+      err,
+      el('div', { className: 'modal-actions' }, [
+        el('button', { className: 'btn', textContent: 'Cancel', onclick: () => close(false) }),
+        sendBtn,
+      ]),
+    ];
+  });
+  if (!sent) return null;
+  return dialog((close) => [
+    el('h2', { textContent: 'Emails sent' }),
+    el('p', { textContent: `Emailed ${nameList(messages.map((m) => m.person.name))}.` }),
+    skippedLine,
+    el('div', { className: 'modal-actions' }, [
+      el('button', { className: 'btn btn-primary', textContent: 'Done', onclick: () => close() }),
+    ]),
+  ]);
+}
+
 /** The "N things to check" box above a roster, or null when there are none. */
 /**
  * The roles a built roster left short, with who could fill them if they were
@@ -641,6 +735,12 @@ function openExport(roster, people, shifts, onReplies) {
           onclick: () => { close(); openMessages(roster, people, shifts); },
         }),
       ]),
+      email.isAvailable() ? row('Email everyone', 'Each person gets their own shifts by email, sent for you. It asks first.', [
+        el('button', {
+          className: 'btn btn-sm', textContent: 'Email…',
+          onclick: () => { close(); emailEveryone(roster, people, shifts); },
+        }),
+      ]) : null,
       row('Print or PDF', 'A clean page for the noticeboard. Choose "Save as PDF" to email it.', [
         el('button', {
           className: 'btn btn-sm', textContent: 'Print',
