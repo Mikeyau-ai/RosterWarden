@@ -17,6 +17,16 @@ pull requests, which are linked so the full detail is one click away.
 - The list of rosters sorts **Newest first** or **Oldest first**.
 - "Usually off" in the hand-edit pickers now respects weeks of the month, not
   just the weekday.
+- **Send out to pick:** on New Roster, the picked dates' empty shifts go out on
+  everyone's staff link. The first to tap *I'll take it* gets a shift, and
+  *Can't do this day* becomes an away date. You see who took what and who
+  hasn't answered, and *Build from these* locks the taken shifts in.
+- **Email everyone:** under Send, one tap emails each person on a roster just
+  their own shifts, after a screen listing who gets one and who's skipped.
+  Emails come from "*your workplace* via RosterWarden", and replies go to the
+  business email set in Settings.
+- Removed old code nothing used any more (the plain-text table and leftover
+  sync-code helpers).
 
 ## 30 October 2026
 
