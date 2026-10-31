@@ -361,6 +361,11 @@ export async function checkReplies(roster) {
   }
 }
 
+/**
+ * Put a roster's places into Planning Center: preview what would change, ask
+ * whether to notify people, send, then show the report. `status(text)` gets
+ * progress lines, and null when finished.
+ */
 export async function sendToPlanningCenter(roster, status = () => {}) {
   const link = store.currentOrg().pco;
   const { people, shifts, lookup } = lookupFor(link, roster);

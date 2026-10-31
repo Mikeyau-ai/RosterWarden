@@ -12,7 +12,7 @@ import { store } from '../store.js';
 import { el, copyText, dialog, downloadText, toast, collapsible } from '../ui.js';
 import { canSend, sendToPlanningCenter, checkReplies } from './planning-center.js';
 import { responseKey } from '../sources/planning-center.js';
-import { formatDate, toDays, weekdayOf, counts, canDoRole, canWork, shiftsOn, shiftOn } from '../scheduler.js';
+import { formatDate, toDays, counts, canDoRole, canWork, shiftsOn, shiftOn } from '../scheduler.js';
 import {
   rosterDays, rosterLines, shiftTimes, formatMessage, formatPerPerson, toCSV, toICS, fileBase,
   hoursByPerson, messageFor,
@@ -96,7 +96,7 @@ function editableRoleRow(roster, people, shift, day, here, roleById, apply) {
         el('option', { value: '', textContent: slot.mine.length < slot.count ? '+ add' : '+ add another' }),
         ...candidates.map((p) => el('option', {
           value: String(p.id),
-          textContent: p.availableWeekdays.includes(weekdayOf(day)) ? p.name : `${p.name} · usually off`,
+          textContent: canWork(p, day) ? p.name : `${p.name} · usually off`,
         })),
       ]);
       select.addEventListener('change', () => {
@@ -155,7 +155,7 @@ export function editableDayCards(roster, people, shifts, apply, onEditDay = null
           }),
           ...candidates.map((p) => el('option', {
             value: String(p.id),
-            textContent: p.availableWeekdays.includes(weekdayOf(day))
+            textContent: canWork(p, day)
               ? p.name
               : `${p.name} · usually off`,
           })),
@@ -236,7 +236,7 @@ export async function pickReplacement(roster, people, shifts, assignment, roleBy
       el('div', { className: 'list' }, givable.map((p) => option(
         p.name,
         !free.includes(p) ? 'away that day'
-          : p.availableWeekdays.includes(weekdayOf(day)) ? null : 'usually off this day',
+          : canWork(p, day) ? null : 'usually off this day',
         // A hand-made change is pinned, so a rebuild keeps it.
         roster.assignments.map((a) => (a === assignment ? { ...a, personId: p.id, locked: true } : a)),
       ))),
@@ -288,7 +288,7 @@ async function pickToAdd(roster, people, shift, day, roleId, roleById, apply) {
         type: 'button', className: 'item', onclick: () => close(p),
       }, [el('div', { className: 'item-main' }, [
         el('div', { className: 'item-title', textContent: p.name }),
-        p.availableWeekdays.includes(weekdayOf(day)) ? null
+        canWork(p, day) ? null
           : el('div', { className: 'item-sub', textContent: 'usually off this day' }),
       ])])))
       : el('div', { className: 'muted', textContent: role
