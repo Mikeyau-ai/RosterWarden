@@ -26,7 +26,6 @@ async function adopt(code) {
  */
 async function matchAccount() {
   const matched = await account.matchCode();
-  sync.acknowledgeCode();      // the account keeps the code now, so there is nothing to write down
   if (matched.mode !== 'differs') return;
   const fresh = store.orgs().length === 0;
   const useAccount = fresh || await dialog((close) => [

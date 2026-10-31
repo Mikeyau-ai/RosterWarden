@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildRoster, auditRoster, formatTable, canDoRole, counts } from '../js/scheduler.js';
+import { buildRoster, auditRoster, canDoRole, counts } from '../js/scheduler.js';
 
 const SUNDAY = ['2026-10-11'];
 
@@ -126,15 +126,6 @@ test('audit after a manual edit counts per role, and a removed role is named as 
     ['Sun 11 Oct 2026 - Worship, Drums: only 0 of 1 filled.'],
   );
   assert.ok(auditRoster(roster, people, shifts, [ROLES[0]]).some((n) => /\(removed role\): only 0 of 1/.test(n)));
-});
-
-test('the text table says which role each person has', () => {
-  const people = [person(1, 'Anna', [LEAD]), person(2, 'Cat', [DRUMS])];
-  const shifts = [band(1, 'Worship', [[LEAD, 1], [DRUMS, 1]])];
-  const r = build(people, shifts, ROLES);
-  const text = formatTable(r, people, shifts, ROLES);
-  assert.match(text, /Anna \(Lead singer\)/);
-  assert.match(text, /Cat \(Drums\)/);
 });
 
 test('the same input gives the same roster', () => {

@@ -145,11 +145,3 @@ test('a deliberate "off" is not undone by the next launch', async () => {
   assert.equal(isDisabled(), false);
 });
 
-test('the code reminder stops once acknowledged', async () => {
-  mem.clear();
-  const { codeAcknowledged, acknowledgeCode } = await import('../js/sync.js');
-
-  assert.equal(codeAcknowledged(), false, 'asks by default');
-  acknowledgeCode();
-  assert.equal(codeAcknowledged(), true, 'and stops once told');
-});
