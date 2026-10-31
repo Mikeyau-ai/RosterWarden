@@ -24,6 +24,15 @@
  *   DELETE /box/:id  ->  { ok: true }  marks it replaced, so the old link stops working
  *   POST   /boxes    <-  { ids: [...] } -> { [id]: { ciphertext, iv, updatedAt } | { replaced: true } }
  *
+ * Open-shift claims (see js/open-shifts.js) - one tiny encrypted record per
+ * shift sent out to be taken, first come, first served, under an id derived
+ * from that set's shared key. `token` is a secret only the claimer's link
+ * gives; the worker keeps just its hash (`by`), so it can tell the holder
+ * from everyone else without knowing who either is:
+ *   PUT    /claim/:id  <-  { ciphertext, iv, token }  (409 if someone else holds it)
+ *   DELETE /claim/:id  <-  { token }                  lets it go, only for its holder
+ *   POST   /claims     <-  { ids: [...] } -> { [id]: { ciphertext, iv, by } }
+ *
  * Planning Center sign-in endpoints (see js/sources/planning-center.js):
  *   POST /pco/token    <- { code, redirect_uri, code_verifier } -> Planning Center's token response
  *   POST /pco/refresh  <- { refresh_token }        -> Planning Center's token response
@@ -61,6 +70,19 @@ export const BOX_SQL = {
     + 'updated_at = excluded.updated_at WHERE mailboxes.revoked = 0',
   revoke: "INSERT INTO mailboxes (id, ciphertext, iv, updated_at, revoked) VALUES (?, '', '', ?, 1) "
     + "ON CONFLICT(id) DO UPDATE SET ciphertext = '', iv = '', updated_at = excluded.updated_at, revoked = 1",
+};
+
+/** Biggest claim accepted, in bytes: a person id, a short name and a time. */
+const CLAIM_MAX_BYTES = 2 * 1024;
+
+/** The claim SQL, named like BOX_SQL for the tests' stand-in database. */
+export const CLAIM_SQL = {
+  read: 'SELECT ciphertext, iv, by_hash FROM claims WHERE id = ?',
+  // A new claim goes in; an existing one changes only for its own holder.
+  take: 'INSERT INTO claims (id, ciphertext, iv, by_hash, claimed_at) VALUES (?, ?, ?, ?, ?) '
+    + 'ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv '
+    + 'WHERE claims.by_hash = excluded.by_hash',
+  release: 'DELETE FROM claims WHERE id = ? AND by_hash = ?',
 };
 
 /** Ids are always a hex SHA-256; anything else is a bad request, not a lookup. */
@@ -105,6 +127,14 @@ export default {
     }
 
     if (request.method === 'POST' && url.pathname === '/boxes') return boxBatch(request, env, origin);
+    if (request.method === 'POST' && url.pathname === '/claims') return claimBatch(request, env, origin);
+    const claim = url.pathname.match(/^\/claim\/([^/]+)$/);
+    if (claim) {
+      if (!ID_PATTERN.test(claim[1])) return json({ error: 'Bad id' }, 400, origin);
+      if (request.method === 'PUT') return claimTake(claim[1], request, env, origin);
+      if (request.method === 'DELETE') return claimRelease(claim[1], request, env, origin);
+      return json({ error: 'Method not allowed' }, 405, origin);
+    }
     const box = url.pathname.match(/^\/box\/([^/]+)$/);
     if (box) {
       if (!ID_PATTERN.test(box[1])) return json({ error: 'Bad id' }, 400, origin);
@@ -180,6 +210,62 @@ async function boxBatch(request, env, origin) {
     out[id] = row.revoked
       ? { replaced: true }
       : { ciphertext: row.ciphertext, iv: row.iv, updatedAt: row.updated_at };
+  }
+  return json(out, 200, origin);
+}
+
+/** Hex SHA-256 of a claimer's token: what the worker keeps instead of the token. */
+async function tokenHash(token) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** The JSON body of a request, or null if it isn't JSON. */
+async function bodyOf(request) {
+  try {
+    return await request.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take a shift for whoever holds `token`, unless someone else already has it.
+ * The insert is one statement, so of two people tapping at once only the
+ * first gets it; reading the row back says who that was.
+ */
+async function claimTake(id, request, env, origin) {
+  const body = await bodyOf(request);
+  const { ciphertext, iv, token } = body || {};
+  if (typeof ciphertext !== 'string' || typeof iv !== 'string' || !ID_PATTERN.test(token || '')) {
+    return json({ error: 'ciphertext, iv and token are required' }, 400, origin);
+  }
+  if (ciphertext.length > CLAIM_MAX_BYTES) return json({ error: 'Too large' }, 413, origin);
+  const by = await tokenHash(token);
+  await env.DB.prepare(CLAIM_SQL.take).bind(id, ciphertext, iv, by, new Date().toISOString()).run();
+  const row = await env.DB.prepare(CLAIM_SQL.read).bind(id).first();
+  if (row?.by_hash !== by) return json({ error: 'Someone else took it first' }, 409, origin);
+  return json({ ok: true, by }, 200, origin);
+}
+
+/** Let a shift go: only the token that took it can. */
+async function claimRelease(id, request, env, origin) {
+  const body = await bodyOf(request);
+  if (!ID_PATTERN.test(body?.token || '')) return json({ error: 'token is required' }, 400, origin);
+  await env.DB.prepare(CLAIM_SQL.release).bind(id, await tokenHash(body.token)).run();
+  return json({ ok: true }, 200, origin);
+}
+
+/** Several claims at once: each one's sealed contents and its holder's hash. Free shifts are left out. */
+async function claimBatch(request, env, origin) {
+  const ids = (await bodyOf(request))?.ids;
+  if (!Array.isArray(ids) || ids.length > BOX_BATCH_MAX || !ids.every((id) => ID_PATTERN.test(id))) {
+    return json({ error: 'ids must be up to 200 hex ids' }, 400, origin);
+  }
+  const out = {};
+  for (const id of ids) {
+    const row = await env.DB.prepare(CLAIM_SQL.read).bind(id).first();
+    if (row) out[id] = { ciphertext: row.ciphertext, iv: row.iv, by: row.by_hash };
   }
   return json(out, 200, origin);
 }

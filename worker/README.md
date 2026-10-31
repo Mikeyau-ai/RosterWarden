@@ -16,6 +16,14 @@ keyed by ids made from the key in their link. Same rule: it stores them and
 cannot read them. Replacing a link marks its boxes `revoked`, so an old link can
 never write again.
 
+And it referees **open shifts** sent out to pick (`/claim/:id`, `/claims`, table
+`claims` in `schema.sql`): the first person to take a shift holds it, and only
+they can let it go. Each claim is sealed with a key only the owner and their
+staff hold; the worker keeps just a hash of the claimer's secret, so it can tell
+the holder apart without knowing who they are. After updating the worker, run the
+`d1 execute` line under first-time setup again to add the table (it only creates
+tables that are missing).
+
 It also does one small job for Planning Center sign-in: `POST /pco/token`,
 `POST /pco/refresh` and `POST /pco/revoke` add the app's client secret (and an
 identifying User-Agent, which Planning Center requires) to a token request and

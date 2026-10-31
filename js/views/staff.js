@@ -13,7 +13,10 @@
  */
 import { el, fill, monthGrid, dialog, toast } from '../ui.js';
 import { todayISO } from '../scheduler.js';
-import { boxesFor, readBox, writeBox, LinkReplaced, maskEmail, maskMobile } from '../staff-link.js';
+import {
+  boxesFor, readBox, writeBox, LinkReplaced, maskEmail, maskMobile,
+  openCryptoKey, claimId, claimer, takeClaim, releaseClaim, readClaims,
+} from '../staff-link.js';
 
 /** Where this phone remembers its link, so reopening the app comes back here. */
 export const STORED_KEY = 'rosterwarden.staff.key';
@@ -185,6 +188,134 @@ function askedOfMe(info, swaps, sent, change) {
   ]);
 }
 
+/**
+ * The "Shifts up for grabs" card: shifts sent out before the roster is built,
+ * by day. The first to tap "I'll take it" gets a shift, and everyone else then
+ * sees who did; one a day each. A day can be turned down as a whole, which
+ * marks it as a date they can't work. Taking and letting go happen on the
+ * server straight away; `hooks.answered()` tells the owner they answered, and
+ * `hooks.setAway(date, on)` marks or unmarks a day they can't work.
+ * Returns null when nothing is left to take.
+ */
+function openShiftsCard(open, linkKey, today, away, hooks) {
+  const slots = (open.slots || []).filter((s) => s.date >= today);
+  if (!slots.length) return null;
+  const node = el('div', { className: 'card' });
+  const ids = new Map();
+  let held = new Map();
+  let me = null;
+  let cryptoKey = null;
+  let busy = false;
+
+  /** Read who holds each shift now. */
+  const load = async () => {
+    me = me || await claimer(linkKey);
+    cryptoKey = cryptoKey || await openCryptoKey(open.key);
+    for (const s of slots) if (!ids.has(s.ref)) ids.set(s.ref, await claimId(open.key, s.ref));
+    const found = await readClaims([...ids.values()], cryptoKey);
+    held = new Map();
+    for (const s of slots) {
+      const c = found.get(ids.get(s.ref));
+      if (c) held.set(s.ref, { name: c.value?.name || 'someone', mine: c.by === me.by });
+    }
+  };
+
+  /** Run one change (take, let go, turn a day down) at a time, then redraw from the server. */
+  const act = async (work) => {
+    if (busy) return;
+    busy = true;
+    try {
+      await work();
+    } catch (e) {
+      toast(e.message);
+    }
+    try { await load(); } catch { /* shown as it was */ }
+    busy = false;
+    draw();
+  };
+
+  /** Take a shift, unless someone beat them to it. */
+  const take = (s) => act(async () => {
+    const ok = await takeClaim(ids.get(s.ref), me.token, cryptoKey, { name: open.me, at: new Date().toISOString() });
+    toast(ok ? 'It\'s yours' : 'Sorry, someone took it first');
+    if (ok) await hooks.answered();
+  });
+
+  /** Let a shift they took go, so someone else can have it. */
+  const letGo = (s) => act(async () => {
+    await releaseClaim(ids.get(s.ref), me.token);
+    toast('Let go');
+  });
+
+  /** Turn a whole day down (letting go of a shift taken on it), or undo that. */
+  const dayOff = (date, on) => act(async () => {
+    if (on) {
+      for (const s of slots) if (s.date === date && held.get(s.ref)?.mine) await releaseClaim(ids.get(s.ref), me.token);
+    }
+    await hooks.setAway(date, on);
+  });
+
+  /** One shift's row: what it is, and take it, let it go, or who has it. */
+  const slotRow = (s, mineToday) => {
+    const h = held.get(s.ref);
+    let right;
+    if (h?.mine) {
+      right = el('div', { className: 'row-tight' }, [
+        el('strong', { textContent: 'Yours' }),
+        el('button', { className: 'btn btn-sm', textContent: 'Let it go', onclick: () => letGo(s) }),
+      ]);
+    } else if (h) {
+      right = el('span', { className: 'faint', textContent: `Taken by ${h.name}` });
+    } else if (away.has(s.date)) {
+      right = el('span', { className: 'faint', textContent: 'Free' });
+    } else if (mineToday) {
+      right = el('span', { className: 'faint', textContent: 'Free · you have one this day' });
+    } else {
+      right = el('button', { className: 'btn btn-sm btn-primary', textContent: 'I\'ll take it', onclick: () => take(s) });
+    }
+    return el('div', { className: 'spread' }, [
+      el('div', {}, [
+        [s.shift, s.times].filter(Boolean).join(' ') + (s.role ? ` · ${s.role}` : ''),
+        s.note ? el('span', { className: 'faint', textContent: ` · ${s.note}` }) : null,
+      ]),
+      right,
+    ]);
+  };
+
+  /** Draw the card from what is known now. */
+  const draw = () => {
+    const dates = [...new Set(slots.map((s) => s.date))];
+    fill(node, [
+      el('div', { className: 'spread' }, [
+        el('label', { className: 'label', textContent: 'Shifts up for grabs' }),
+        el('button', { className: 'btn btn-sm btn-ghost', textContent: 'Check again', onclick: () => act(async () => {}) }),
+      ]),
+      el('div', { className: 'faint', textContent: 'First in gets it, one a day. Not free on a day? Say so, so you\'re not put on it.' }),
+      ...dates.map((date) => {
+        const onDay = slots.filter((s) => s.date === date);
+        const mineToday = onDay.some((s) => held.get(s.ref)?.mine);
+        const off = away.has(date);
+        return el('div', { className: 'swap-row' }, [
+          el('div', { className: 'spread' }, [
+            el('strong', { textContent: shortDate(date) }),
+            off
+              ? el('div', { className: 'row-tight' }, [
+                el('span', { className: 'faint', textContent: 'You can\'t do this day' }),
+                el('button', { className: 'btn btn-sm', textContent: 'Undo', onclick: () => dayOff(date, false) }),
+              ])
+              : el('button', { className: 'btn btn-sm', textContent: 'Can\'t do this day', onclick: () => dayOff(date, true) }),
+          ]),
+          ...onDay.map((s) => slotRow(s, mineToday)),
+        ]);
+      }),
+    ]);
+  };
+
+  fill(node, el('div', { className: 'muted', textContent: 'Loading shifts up for grabs…' }));
+  load().then(draw, () => { held = new Map(); draw(); });
+  return { node, redraw: draw };
+}
+
 /** Render the staff page for link `key` into `container`. */
 export async function render(container, key) {
   document.body.classList.add('staff-mode');
@@ -228,6 +359,8 @@ export async function render(container, key) {
     count.textContent = n ? `${n} upcoming date${n === 1 ? '' : 's'} you can't work` : 'No dates marked yet.';
   };
 
+  // The "Shifts up for grabs" card, made further down once sending is set up.
+  let openCard = null;
   const cal = monthGrid({
     start: today,
     classOf: (iso) => (away.has(iso) ? 'is-away' : ''),
@@ -236,6 +369,7 @@ export async function render(container, key) {
       if (away.has(iso)) away.delete(iso); else away.add(iso);
       cal.redraw();
       recount();
+      openCard?.redraw();
       status.textContent = 'Not saved yet.';
     },
   });
@@ -256,6 +390,8 @@ export async function render(container, key) {
     swapAnswers: (mine?.value?.swapAnswers || []).filter((a) => waiting.has(a.id)),
     // Their answers to shifts still on their page; ones for shifts gone are dropped.
     shiftReplies: (mine?.value?.shiftReplies || []).filter((r) => (info.shifts || []).some((s) => s.ref === r.ref)),
+    // The open shifts they last answered, so the owner can see who has.
+    openReplied: mine?.value?.openReplied || null,
     // Their details. The page is never given their email or mobile (a link can be forwarded), only hints, so
     // those go out blank ("no change") unless they type a new one. One they typed is kept, and resent, only
     // until the owner's app has read it (`seenUpTo`), so a quick second send can't drop it unread.
@@ -345,6 +481,36 @@ export async function render(container, key) {
   };
   redraw();
 
+  if (info.open) {
+    openCard = openShiftsCard(info.open, key, today, away, {
+      /** Tell the owner they've answered these open shifts. */
+      answered: async () => {
+        if (sent.openReplied === info.open.id) return;
+        sent.openReplied = info.open.id;
+        await send();
+      },
+      /**
+       * Mark or unmark one day they can't work, and send it straight away.
+       * Only that day changes in what is sent; other calendar taps still wait for Save.
+       */
+      setAway: async (date, on) => {
+        const before = { awayDates: sent.awayDates, openReplied: sent.openReplied };
+        sent.awayDates = [...new Set([...sent.awayDates.filter((d) => d !== date), ...(on ? [date] : [])])].sort();
+        sent.openReplied = info.open.id;
+        try {
+          await send();
+        } catch (e) {
+          Object.assign(sent, before);
+          throw e;
+        }
+        if (on) away.add(date); else away.delete(date);
+        cal.redraw();
+        recount();
+        toast(on ? 'Sent: you can\'t do that day' : 'Sent: you can do that day');
+      },
+    });
+  }
+
   fill(container, [
     el('h2', { textContent: first ? `Hi ${first}` : 'Your availability' }),
     el('p', { className: 'muted', textContent: `Say whether you can do each of your shifts: that's sent straight away. Then tap the dates you can't work${info.org ? ` for ${info.org}` : ''} and Save. Tap again to undo.` }),
@@ -357,6 +523,7 @@ export async function render(container, key) {
       }),
     ]) : null,
     askedCard,
+    openCard?.node || null,
     shiftsCard,
     el('div', { className: 'card' }, [
       el('label', { className: 'label', textContent: 'Dates you can\'t work' }),

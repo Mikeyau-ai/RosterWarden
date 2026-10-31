@@ -147,3 +147,77 @@ export async function replaceBox(id) {
   const res = await request(`/box/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new LinkError('Could not cancel the old link. Try again in a moment.');
 }
+
+// ---------------------------------------------------------- open shifts --
+/*
+ * Shifts sent out to be taken (see js/open-shifts.js). Each set has its own
+ * random key, given to every staff page, and from it come the claim ids and
+ * the key that seals them:
+ *
+ *   open key ─┬─ SHA-256("rosterwarden-claim:" + key + ":" + slot ref) ──▶ claim id
+ *             └─ SHA-256("rosterwarden-open-key:" + key)                ──▶ AES-GCM key
+ *
+ * A person proves a claim is theirs with a token from their own link key,
+ * SHA-256("rosterwarden-claimer:" + link key). The worker keeps only the
+ * token's hash, `by`, which every page sees, so a page can tell its own
+ * claims apart, and the owner can check who really took each one.
+ */
+
+/** The sealing key for an open set's claims. */
+export async function openCryptoKey(openKey) {
+  const keyBytes = await crypto.subtle.digest('SHA-256', encoder.encode(`rosterwarden-open-key:${openKey}`));
+  return crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+/** The server id of one slot's claim. */
+export function claimId(openKey, ref) {
+  return hexHash(`rosterwarden-claim:${openKey}:${ref}`);
+}
+
+/** A person's claim token (kept secret) and its hash `by` (what the worker shows), from their link key. */
+export async function claimer(linkKey) {
+  const token = await hexHash(`rosterwarden-claimer:${linkKey}`);
+  return { token, by: await hexHash(token) };
+}
+
+/**
+ * Take a slot: `value` (who, sealed) goes in under `id` if nobody else holds
+ * it. True if it's now theirs, false if someone else got it first.
+ */
+export async function takeClaim(id, token, cryptoKey, value) {
+  const res = await request(`/claim/${id}`, {
+    method: 'PUT', body: JSON.stringify({ ...(await encrypt(value, cryptoKey)), token }),
+  });
+  if (res.status === 409) return false;
+  if (!res.ok) throw new LinkError('Could not take that shift. Try again in a moment.');
+  return true;
+}
+
+/** Let a slot go again (only works for whoever took it). */
+export async function releaseClaim(id, token) {
+  const res = await request(`/claim/${id}`, { method: 'DELETE', body: JSON.stringify({ token }) });
+  if (!res.ok) throw new LinkError('Could not let that shift go. Try again in a moment.');
+}
+
+/**
+ * The claims held on some slots: a Map of id to `{ value, by }`. Free slots,
+ * and any claim that won't open with `cryptoKey`, are left out.
+ */
+export async function readClaims(ids, cryptoKey) {
+  const out = new Map();
+  for (let i = 0; i < ids.length; i += 200) {
+    const batch = ids.slice(i, i + 200);
+    const res = await request('/claims', { method: 'POST', body: JSON.stringify({ ids: batch }) });
+    if (!res.ok) throw new LinkError('Checking the open shifts failed.');
+    const found = await res.json();
+    for (const id of batch) {
+      if (!found[id]) continue;
+      try {
+        out.set(id, { value: await decrypt(found[id], cryptoKey), by: found[id].by });
+      } catch {
+        // Not sealed with this set's key: not a real claim.
+      }
+    }
+  }
+  return out;
+}

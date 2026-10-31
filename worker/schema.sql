@@ -19,3 +19,15 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   updated_at TEXT NOT NULL,
   revoked    INTEGER NOT NULL DEFAULT 0
 );
+
+-- Open-shift claims: who took each shift sent out to be picked, first come,
+-- first served. `ciphertext` (the person and when) is sealed with a key only
+-- the owner and their staff hold; `by_hash` is the hash of a secret from the
+-- claimer's link, so only they can change or let go of it.
+CREATE TABLE IF NOT EXISTS claims (
+  id         TEXT PRIMARY KEY,
+  ciphertext TEXT NOT NULL,
+  iv         TEXT NOT NULL,
+  by_hash    TEXT NOT NULL,
+  claimed_at TEXT NOT NULL
+);

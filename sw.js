@@ -45,6 +45,7 @@ const SHELL = [
   './js/views/staff.js',
   './js/staff.js',
   './js/staff-link.js',
+  './js/open-shifts.js',
   './js/views/saved.js',
   './js/views/updates.js',
   './js/account.js',

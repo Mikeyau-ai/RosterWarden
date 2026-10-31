@@ -22,6 +22,8 @@ import { show } from '../app.js';
 import { openDayShifts } from './day-shifts.js';
 import * as teamView from './team.js';
 import * as savedView from './saved.js';
+import * as staff from '../staff.js';
+import { slotsFor, answered } from '../open-shifts.js';
 
 // The calendar selection, kept across re-renders (and trips to other tabs)
 // until a roster is built from it.
@@ -240,11 +242,19 @@ export function render(container) {
     toast(edit ? 'Put people on each shift, or let it fill the rest' : 'Built and saved');
   };
 
-  /** Build the roster for the picked dates, save it, and open it. */
+  /**
+   * Build the roster for the picked dates, save it, and open it. Shifts staff
+   * took from shifts sent out to pick go in first, locked; building on any of
+   * those dates finishes that set, so it leaves their pages.
+   */
   const onBuild = () => {
     const dates = datesOrComplain();
     if (!dates) return;
+    const open = staff.openShifts();
+    const locked = staff.openLocked(dates, dayListFor);
+    if (open && open.days.some((d) => picked.has(d))) staff.stopOpenShifts(open.id);
     finish(buildRoster({
+      locked,
       orgId: org.id,
       name: draft?.name || autoName(dates[0]),
       people: store.people(),
@@ -256,6 +266,46 @@ export function render(container) {
       // Turns in saved rosters count towards who is due next.
       history: store.rosters().filter((r) => !r.draft).flatMap((r) => r.assignments || []),
     }));
+  };
+
+  /**
+   * Send the picked dates' shifts out for staff to take on their links, first
+   * come, first served, after saying what that does. Replaces any set out now.
+   */
+  const onSendOut = async () => {
+    const dates = datesOrComplain();
+    if (!dates) return;
+    const people = staff.openAudience(org.id);
+    if (people.length === 0) {
+      errDiv.textContent = 'Nobody has a staff link yet: make links on the People tab first.';
+      return;
+    }
+    const before = staff.openShifts();
+    const ok = await confirmDialog(
+      'Send these shifts out to pick?',
+      `${people.length === 1 ? '1 person' : `${people.length} people`} with a staff link will see the shifts on these ${dates.length === 1 ? 'date' : `${dates.length} dates`}. `
+        + 'The first to take a shift gets it, one a day each, and anyone can say they can\'t do a day. '
+        + 'When you build, the shifts taken are locked in and the rest are filled as usual.'
+        + (before ? ' This replaces the shifts you sent out before.' : ''),
+      'Send out',
+    );
+    if (!ok) return;
+    try {
+      await staff.sendOpenShifts(dates, dayListsFor(dates));
+      toast('Sent out: they\'ll see them on their links');
+    } catch {
+      toast('Saved: they\'ll reach their links next time you\'re online');
+    }
+    render(container);
+  };
+
+  /** Build from a set sent out to pick: its dates and shifts, with what's been taken locked in. */
+  const buildFromOpen = async (open) => {
+    try { await staff.refreshClaims(); } catch { /* built from the last check instead */ }
+    picked = new Set(open.days);
+    plan = { ...open.dayShifts };
+    carriedOn = false;
+    onBuild();
   };
 
   /**
@@ -302,6 +352,9 @@ export function render(container) {
       errDiv,
       el('div', { className: 'build-actions' }, [
         el('button', { type: 'button', className: 'btn', textContent: 'Fill in by hand', onclick: onManual }),
+        staff.openAudience(org.id).length
+          ? el('button', { type: 'button', className: 'btn', textContent: 'Send out to pick', onclick: onSendOut })
+          : null,
         el('button', { type: 'button', className: 'btn btn-primary', textContent: 'Build roster', onclick: onBuild }),
       ]),
     ]);
@@ -329,7 +382,65 @@ export function render(container) {
     readiness,
   ]);
 
-  fill(container, [formCard, planWrap, requestsWrap, buildControl]);
+  const open = staff.openShifts();
+  fill(container, [open ? openSection(container, open, buildFromOpen) : null, formCard, planWrap, requestsWrap, buildControl]);
+}
+
+/**
+ * "Shifts sent out to pick": each shift sent out and who took it, who has
+ * answered and who hasn't, and buttons to check again, build, or stop.
+ */
+function openSection(container, open, buildFrom) {
+  const slots = slotsFor(open);
+  const taken = slots.filter((s) => open.claims?.[s.ref]).length;
+  const { answered: yes, waiting } = answered(open, staff.openAudience(open.orgId));
+  const noLink = store.people().filter((p) => p.active && !staff.hasLink(p));
+  const names = (list) => list.map((p) => p.name).join(', ');
+  const nameOf = (id) => store.people().find((p) => p.id === id)?.name || 'Someone';
+  const roleName = (id) => store.roles().find((r) => r.id === id)?.name;
+
+  // One block per date: each shift (and role place) and who has it.
+  const days = [...new Set(slots.map((s) => s.date))].map((date) => el('div', { className: 'open-day' }, [
+    el('strong', { textContent: formatDate(date) }),
+    ...slots.filter((s) => s.date === date).map((s) => {
+      const claim = open.claims?.[s.ref];
+      const label = [s.shift.name || 'Shift', shiftTimes(s.shift)].filter(Boolean).join(' ')
+        + (s.roleId != null && roleName(s.roleId) ? ` · ${roleName(s.roleId)}` : '');
+      return el('div', { className: 'spread' }, [
+        el('span', { textContent: label }),
+        claim ? el('span', { textContent: nameOf(claim.personId) }) : el('span', { className: 'faint', textContent: 'Free' }),
+      ]);
+    }),
+  ]));
+
+  return el('div', { className: 'card' }, [
+    el('strong', { textContent: 'Shifts sent out to pick' }),
+    el('div', { className: 'faint', textContent: `Sent ${formatDate(open.sentAt.slice(0, 10), { withWeekday: false })} · ${taken} of ${slots.length} taken` }),
+    ...days,
+    el('div', {}, [el('strong', { textContent: 'Answered: ' }), yes.length ? names(yes) : 'nobody yet']),
+    waiting.length ? el('div', {}, [el('strong', { textContent: 'Not answered yet: ' }), names(waiting)]) : null,
+    noLink.length ? el('div', { className: 'faint', textContent: `No staff link, so they can't see these: ${names(noLink)}` }) : null,
+    el('div', { className: 'row-tight', style: 'margin-top:.6rem' }, [
+      el('button', {
+        type: 'button', className: 'btn btn-sm', textContent: 'Check for answers',
+        onclick: async (e) => {
+          e.target.disabled = true;
+          try { await staff.syncStaff(); } catch { toast('Couldn\'t check right now. Try again in a moment.'); }
+          render(container);
+        },
+      }),
+      el('button', { type: 'button', className: 'btn btn-sm btn-primary', textContent: 'Build from these', onclick: () => buildFrom(open) }),
+      el('button', {
+        type: 'button', className: 'btn btn-sm btn-danger', textContent: 'Stop',
+        onclick: async () => {
+          const ok = await confirmDialog('Stop these open shifts?', 'They leave everyone\'s link, and what was taken is forgotten.', 'Stop');
+          if (!ok) return;
+          staff.stopOpenShifts(open.id);
+          render(container);
+        },
+      }),
+    ]),
+  ]);
 }
 
 /**

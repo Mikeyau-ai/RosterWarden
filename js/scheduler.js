@@ -221,7 +221,7 @@ export function canDoRole(person, roleId, roleById) {
  * The places a shift needs filled: one per role with how many, or - when the
  * shift has no roles - a single place with no role and its plain headcount.
  */
-function slotsOf(shift) {
+export function slotsOf(shift) {
   if (shift.roles?.length) {
     return shift.roles
       .filter((r) => r.count > 0)
